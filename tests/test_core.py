@@ -1,3 +1,5 @@
+import json
+
 import numpy as np
 import pytest
 
@@ -50,6 +52,17 @@ def test_rod_length_and_resampling_follow_the_centerline():
     np.testing.assert_allclose(nodes, [(0, 0, 0), (0.5, 0, 0), (1, 0, 0), (1, 0.5, 0), (1, 1, 0)])
 
 
+def test_a_rod_can_start_stretched():
+    # Two unstretched metres drawn out to three: the middle material point sits halfway.
+    rod = Rod(
+        centerline=((0, 0, 0), (3, 0, 0)), radius=0.01, material=RUBBER, rest_arc_length=(0.0, 2.0)
+    )
+    assert rod.length == pytest.approx(2.0)
+    np.testing.assert_allclose(rod.nodes(2), [(0, 0, 0), (1.5, 0, 0), (3, 0, 0)])
+    with pytest.raises(ValueError):
+        Rod(centerline=((0, 0, 0), (1, 0, 0)), radius=0.01, material=RUBBER, rest_arc_length=(0.0,))
+
+
 def test_catenary_start_shape_has_the_right_length_and_span():
     rod = catenary.scenario.rods[0]
     assert rod.length == pytest.approx(LENGTH, rel=1e-5)
@@ -93,6 +106,14 @@ def test_run_warms_the_solver_up_on_a_short_version_before_the_timed_run():
 
     run(experiment(), Recording(), n_elements=4, n_frames=11)
     assert calls == [(pytest.approx(1e-3), 2), (1.0, 11)]
+
+
+def test_a_metric_that_cannot_be_computed_is_saved_as_null(tmp_path):
+    result = run(
+        experiment(metrics={"broken": lambda s, t: float("nan")}), FakeSolver(), n_elements=4
+    )
+    result.save(tmp_path)
+    assert json.loads((tmp_path / "result.json").read_text())["metrics"] == {"broken": None}
 
 
 def test_run_reports_missing_capabilities_without_running():

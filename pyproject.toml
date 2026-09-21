@@ -29,6 +29,7 @@ mujoco = "cosseratbench.solvers.mujoco:MuJoCoSolver"
 [project.entry-points."cosseratbench.experiments"]
 catenary = "cosseratbench.experiments.catenary:catenary"
 cantilever = "cosseratbench.experiments.cantilever:cantilever"
+pendulum = "cosseratbench.experiments.pendulum:pendulum"
 
 [dependency-groups]
 dev = ["pytest>=8", "ruff>=0.6"]
