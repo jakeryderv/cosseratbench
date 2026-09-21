@@ -83,6 +83,18 @@ def test_run_computes_metrics_from_the_trajectory():
     assert result.metrics == {"tip_x": 2.0}
 
 
+def test_run_warms_the_solver_up_on_a_short_version_before_the_timed_run():
+    calls = []
+
+    class Recording(FakeSolver):
+        def run(self, scenario, *, n_elements, n_frames):
+            calls.append((scenario.duration, n_frames))
+            return super().run(scenario, n_elements=n_elements, n_frames=n_frames)
+
+    run(experiment(), Recording(), n_elements=4, n_frames=11)
+    assert calls == [(pytest.approx(1e-3), 2), (1.0, 11)]
+
+
 def test_run_reports_missing_capabilities_without_running():
     result = run(experiment(requires=frozenset({Capability.STRETCH})), FakeSolver())
     assert not result.supported
