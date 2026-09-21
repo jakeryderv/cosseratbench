@@ -41,6 +41,80 @@ class PointLoad:
     at: End = End.END
 
 
+def _cross_matrix(v: np.ndarray) -> np.ndarray:
+    return np.array([[0.0, -v[2], v[1]], [v[2], 0.0, -v[0]], [-v[1], v[0], 0.0]])
+
+
+def rotation_matrix(rotation: np.ndarray) -> np.ndarray:
+    """The rotation a rotation vector (axis times angle, in radians) describes."""
+    angle = float(np.linalg.norm(rotation))
+    k = _cross_matrix(np.asarray(rotation, dtype=float))
+    if angle < 1e-12:
+        return np.eye(3) + k
+    return np.eye(3) + np.sin(angle) / angle * k + (1.0 - np.cos(angle)) / angle**2 * k @ k
+
+
+@dataclass(frozen=True)
+class Motion:
+    """Prescribed motion of a clamped end, relative to where it starts.
+
+    At each of ``times`` the end has moved by ``displacement`` and turned by
+    ``rotation`` about its own starting position, both in the world frame; a
+    rotation is a rotation vector, axis times angle in radians. Between times both
+    are interpolated linearly, and after the last the end holds still. Sample a
+    smooth motion finely enough that its corners do not matter.
+    """
+
+    times: tuple[float, ...]  # s, from 0
+    displacement: tuple[Vec3, ...]  # m
+    rotation: tuple[Vec3, ...]  # rad
+
+    def __post_init__(self) -> None:
+        times = np.asarray(self.times, dtype=float)
+        if len(times) < 2 or times[0] != 0.0 or np.any(np.diff(times) <= 0):
+            raise ValueError("times must start at 0 and increase")
+        if not (len(self.displacement) == len(self.rotation) == len(times)):
+            raise ValueError("displacement and rotation need one entry per time")
+        if any(self.displacement[0]) or any(self.rotation[0]):
+            raise ValueError("a motion starts where the end starts: zero at time 0")
+
+    def _segment(self, time: float) -> tuple[int, float]:
+        """Index of the interval containing ``time`` and how far through it, in [0, 1]."""
+        times = self.times
+        if time >= times[-1]:
+            return len(times) - 2, 1.0
+        i = int(np.searchsorted(times, time, side="right")) - 1
+        return i, (time - times[i]) / (times[i + 1] - times[i])
+
+    def pose(self, time: float) -> tuple[np.ndarray, np.ndarray]:
+        """Displacement, and rotation matrix, of the end at ``time``."""
+        i, f = self._segment(time)
+        d, r = np.asarray(self.displacement, float), np.asarray(self.rotation, float)
+        return d[i] + f * (d[i + 1] - d[i]), rotation_matrix(r[i] + f * (r[i + 1] - r[i]))
+
+    def rates(self, time: float) -> tuple[np.ndarray, np.ndarray]:
+        """Velocity, and angular velocity in the world frame, of the end at ``time``."""
+        if time >= self.times[-1]:
+            return np.zeros(3), np.zeros(3)
+        i, f = self._segment(time)
+        dt = self.times[i + 1] - self.times[i]
+        d, r = np.asarray(self.displacement, float), np.asarray(self.rotation, float)
+        velocity = (d[i + 1] - d[i]) / dt
+        rotation, turning = r[i] + f * (r[i + 1] - r[i]), (r[i + 1] - r[i]) / dt
+        # A rotation vector changing at rate v turns the body at J(r) v, J the left Jacobian.
+        angle = float(np.linalg.norm(rotation))
+        k = _cross_matrix(rotation)
+        if angle < 1e-6:
+            jacobian = np.eye(3) + 0.5 * k
+        else:
+            jacobian = (
+                np.eye(3)
+                + (1.0 - np.cos(angle)) / angle**2 * k
+                + (angle - np.sin(angle)) / angle**3 * k @ k
+            )
+        return velocity, jacobian @ turning
+
+
 @dataclass(frozen=True)
 class Rod:
     """A uniform circular rod whose stress-free shape is straight.
@@ -52,6 +126,9 @@ class Rod:
     each centerline point, so a rod can start stretched: a cable already hanging
     in equilibrium, say, rather than one that stretches the moment gravity acts.
     Without it the rod starts unstretched and its length is the polyline's.
+
+    A clamped end may be driven: ``start_motion`` or ``end_motion`` then moves it
+    and turns it over time instead of holding it still.
     """
 
     centerline: tuple[Vec3, ...]
@@ -62,8 +139,19 @@ class Rod:
     end: EndCondition = EndCondition.FREE
     loads: tuple[PointLoad, ...] = ()
     rest_arc_length: tuple[float, ...] | None = None  # m, one per centerline point, from 0
+    start_motion: Motion | None = None
+    end_motion: Motion | None = None
+
+    def motion(self, end: End) -> Motion | None:
+        return self.start_motion if end is End.START else self.end_motion
+
+    def condition(self, end: End) -> EndCondition:
+        return self.start if end is End.START else self.end
 
     def __post_init__(self) -> None:
+        for end in End:
+            if self.motion(end) is not None and self.condition(end) is not EndCondition.CLAMPED:
+                raise ValueError(f"only a clamped end can be driven; the {end.value} is not")
         if self.rest_arc_length is not None:
             rest = np.asarray(self.rest_arc_length)
             if len(rest) != len(self.centerline) or rest[0] != 0.0 or np.any(np.diff(rest) <= 0):

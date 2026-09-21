@@ -510,7 +510,7 @@ function buildScenario() {
       [`Young's modulus${of}`, si(rod.material.youngs_modulus, "Pa")],
       [`Shear modulus${of}`, si(rod.material.shear_modulus, "Pa")],
       [`Density${of}`, `${formatNumber(rod.material.density)} kg/m³`],
-      [`Ends${of}`, `${rod.start} start, ${rod.end} end`],
+      [`Ends${of}`, `${rod.start_motion ? "driven" : rod.start} start, ${rod.end_motion ? "driven" : rod.end} end`],
       ...rod.loads.map((load) => [`Load${of}`, `${si(Math.hypot(...load.force), "N")} at ${load.at} along ${direction(load.force)}`]),
     );
   });

@@ -5,8 +5,10 @@ import pytest
 
 from cosseratbench import (
     Capability,
+    EndCondition,
     Experiment,
     Material,
+    Motion,
     Rod,
     Scenario,
     Trajectory,
@@ -61,6 +63,50 @@ def test_a_rod_can_start_stretched():
     np.testing.assert_allclose(rod.nodes(2), [(0, 0, 0), (1.5, 0, 0), (3, 0, 0)])
     with pytest.raises(ValueError):
         Rod(centerline=((0, 0, 0), (1, 0, 0)), radius=0.01, material=RUBBER, rest_arc_length=(0.0,))
+
+
+def test_motion_interpolates_between_times_and_then_holds():
+    motion = Motion(
+        times=(0.0, 2.0),
+        displacement=((0, 0, 0), (0.2, 0, 0)),
+        rotation=((0, 0, 0), (0, 0, np.pi)),
+    )
+    displacement, rotation = motion.pose(1.0)
+    np.testing.assert_allclose(displacement, (0.1, 0, 0))
+    np.testing.assert_allclose(rotation @ (1, 0, 0), (0, 1, 0), atol=1e-12)  # a quarter turn
+    np.testing.assert_allclose(motion.pose(5.0)[0], (0.2, 0, 0))
+    assert not np.any(motion.rates(5.0)[0]) and not np.any(motion.rates(5.0)[1])
+
+
+def test_motion_rates_are_the_derivatives_of_its_pose():
+    motion = Motion(
+        times=(0.0, 1.0, 2.5),
+        displacement=((0, 0, 0), (0.1, -0.2, 0.3), (0.4, 0, 0)),
+        rotation=((0, 0, 0), (0.3, 1.2, -0.5), (2.0, -0.4, 1.1)),  # not about one axis
+    )
+    h = 1e-6
+    for t in (0.3, 0.9, 1.7, 2.4):
+        (d1, r1), (d2, r2) = motion.pose(t - h), motion.pose(t + h)
+        spin = (r2 - r1) / (2 * h) @ motion.pose(t)[1].T  # skew matrix of the angular velocity
+        velocity, angular_velocity = motion.rates(t)
+        np.testing.assert_allclose(velocity, (d2 - d1) / (2 * h), atol=1e-8)
+        np.testing.assert_allclose(
+            angular_velocity, (spin[2, 1], spin[0, 2], spin[1, 0]), atol=1e-7
+        )
+
+
+def test_motion_must_start_at_rest_where_the_end_is():
+    with pytest.raises(ValueError):
+        Motion(times=(0.0, 1.0), displacement=((0.1, 0, 0), (0, 0, 0)), rotation=((0, 0, 0),) * 2)
+    with pytest.raises(ValueError):
+        Motion(times=(1.0, 2.0), displacement=((0, 0, 0),) * 2, rotation=((0, 0, 0),) * 2)
+
+
+def test_only_a_clamped_end_can_be_driven():
+    turn = Motion(times=(0.0, 1.0), displacement=((0, 0, 0),) * 2, rotation=((0, 0, 0), (0, 0, 1)))
+    with pytest.raises(ValueError, match="clamped"):
+        Rod(STRAIGHT.centerline, 0.01, RUBBER, start=EndCondition.PINNED, start_motion=turn)
+    Rod(STRAIGHT.centerline, 0.01, RUBBER, end=EndCondition.CLAMPED, end_motion=turn)
 
 
 def test_catenary_start_shape_has_the_right_length_and_span():
