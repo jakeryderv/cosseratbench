@@ -1,0 +1,45 @@
+[project]
+name = "cosseratbench"
+version = "0.0.1"
+description = "A visual benchmark suite for rope, cable, and Cosserat rod simulation."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Jake Van Slyke" }]
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.24"]
+
+[project.optional-dependencies]
+pyelastica = ["pyelastica>=1.0"]
+mujoco = ["mujoco>=3.2"]
+all = ["cosseratbench[pyelastica,mujoco]"]
+
+[project.urls]
+Repository = "https://github.com/jakeryderv/cosseratbench"
+
+[project.scripts]
+cosseratbench = "cosseratbench.cli:main"
+
+# Built-in solvers and experiments register through the same entry points
+# that third-party packages use.
+[project.entry-points."cosseratbench.solvers"]
+pyelastica = "cosseratbench.solvers.pyelastica:PyElasticaSolver"
+mujoco = "cosseratbench.solvers.mujoco:MuJoCoSolver"
+
+[project.entry-points."cosseratbench.experiments"]
+catenary = "cosseratbench.experiments.catenary:catenary"
+cantilever = "cosseratbench.experiments.cantilever:cantilever"
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[build-system]
+requires = ["uv_build>=0.12.11,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.ruff]
+line-length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["slow: runs a full simulation"]

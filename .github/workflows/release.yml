@@ -1,0 +1,19 @@
+name: release
+
+# Publishing a GitHub release uploads that version to PyPI through trusted
+# publishing: no token is stored, PyPI trusts this workflow in this repository.
+on:
+  release:
+    types: [published]
+
+jobs:
+  pypi:
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.2.0
+      - run: uv build
+      - run: uv publish
