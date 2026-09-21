@@ -1,6 +1,6 @@
 # cosseratbench
 
-A visual benchmark suite for evaluating rope, cable, and Cosserat rod simulation across deformation, contact, and dynamic stress cases.
+***A visual benchmark suite for evaluating rope, cable, and Cosserat rod simulation across deformation, contact, and dynamic stress cases.***
 
 | #  | Experiment                         | What it tests                                                           |
 | -- | ---------------------------------- | ----------------------------------------------------------------------- |
