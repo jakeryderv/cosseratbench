@@ -25,21 +25,26 @@ def _numbers(values) -> str:
 def _rod_xml(index: int, rod: Rod, n_elements: int, dt: float) -> tuple[str, str]:
     """MJCF for one rod: its worldbody element and any equality constraints."""
     m = rod.material
+    nodes = rod.nodes(n_elements)
+    segments = np.linalg.norm(np.diff(nodes, axis=0), axis=1)
+    # The chain cannot stretch, so it is built in its initial shape, stretched or not.
+    # Scaling the density keeps the mass that of the unstretched rod.
+    density = float(m.density * rod.length / segments.sum())
     body = f"""
     <composite type="cable" prefix="r{index}_" initial="{_INITIAL[rod.start]}"
-               vertex="{_numbers(rod.nodes(n_elements))}">
+               vertex="{_numbers(nodes)}">
       <plugin plugin="mujoco.elasticity.cable">
         <config key="twist" value="{m.shear_modulus!r}"/>
         <config key="bend" value="{m.youngs_modulus!r}"/>
         <config key="flat" value="true"/>
       </plugin>
       <joint kind="main" damping="0"/>
-      <geom type="cylinder" size="{rod.radius!r}" density="{m.density!r}" contype="0" conaffinity="0"/>
+      <geom type="cylinder" size="{rod.radius!r}" density="{density!r}" contype="0" conaffinity="0"/>
     </composite>"""
     equality = ""
     if rod.end in _END_CONSTRAINT:
         # Segment frames have their origin at the segment's start and x along it.
-        anchor = _numbers([rod.length / n_elements, 0.0, 0.0])
+        anchor = _numbers([segments[-1], 0.0, 0.0])
         # MuJoCo's equality constraints are soft, and at their default stiffness a held end
         # drifts by millimetres under the cable's weight. Make them as stiff as the step allows.
         equality = f"""
@@ -49,10 +54,13 @@ def _rod_xml(index: int, rod: Rod, n_elements: int, dt: float) -> tuple[str, str
 
 
 def _stable_time_step(rod: Rod, n_elements: int) -> float:
-    """Upper bound on the step from the fastest bending mode; joint stiffness is integrated explicitly."""
+    """Upper bound on the step from the fastest bending and twisting modes; the
+    plugin's joint stiffness is integrated explicitly."""
+    m = rod.material
     dl = rod.length / n_elements
-    wave_speed = math.sqrt(rod.material.youngs_modulus / rod.material.density)
-    return 4.0 * dl**2 / (math.pi**2 * rod.radius * wave_speed)
+    wave_speed = math.sqrt(m.youngs_modulus / m.density)
+    twist_speed = math.sqrt(m.shear_modulus / m.density)
+    return min(4.0 * dl**2 / (math.pi**2 * rod.radius * wave_speed), dl / twist_speed)
 
 
 class MuJoCoSolver:

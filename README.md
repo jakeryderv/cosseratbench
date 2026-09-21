@@ -21,11 +21,11 @@
 
 ## Status
 
-Early. Two experiments (catenary, cantilever) run against two solvers
-([PyElastica](https://github.com/GazzolaLab/PyElastica) and
+Early. Three experiments (catenary, cantilever, pendulum) run against two
+solvers ([PyElastica](https://github.com/GazzolaLab/PyElastica) and
 [MuJoCo](https://mujoco.org)'s cable plugin), each scored against an analytical
-reference, and a web viewer plays the results back. Contact and driven
-boundaries are not built yet.
+or high-accuracy numerical reference, and a web viewer plays the results back.
+Contact and driven boundaries are not built yet.
 
 ## Usage
 
@@ -56,7 +56,8 @@ needs a network connection.
 ## How it fits together
 
 - A **scenario** describes the physics and nothing else: geometry, material,
-  boundary conditions, loads, gravity, duration, all in SI units. Time steps,
+  boundary conditions, loads, gravity, duration, all in SI units. A rod may
+  start stretched, for example already hanging in equilibrium. Time steps,
   element counts, contact stiffnesses and damping coefficients are not part of
   it; they are each solver's business.
 - A **solver** adapter turns a scenario into a **trajectory**, node positions

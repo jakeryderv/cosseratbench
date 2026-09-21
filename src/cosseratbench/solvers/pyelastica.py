@@ -52,15 +52,17 @@ def _directors(nodes: np.ndarray, normal: np.ndarray) -> np.ndarray:
 
 
 def _stable_time_step(rod: Rod, n_elements: int) -> float:
-    """Upper bound on the explicit step from the fastest axial, bending and shear modes."""
+    """Upper bound on the explicit step from the fastest axial, bending, shear and twisting modes."""
     m = rod.material
     dl = rod.length / n_elements
     axial_speed = math.sqrt(m.youngs_modulus / m.density)
     shear_speed = math.sqrt(_SHEAR_COEFFICIENT * m.shear_modulus / m.density)
+    twist_speed = math.sqrt(m.shear_modulus / m.density)
     return min(
         dl / axial_speed,
         4.0 * dl**2 / (math.pi**2 * rod.radius * axial_speed),
         rod.radius / shear_speed,
+        dl / twist_speed,
     )
 
 
@@ -100,20 +102,27 @@ class PyElasticaSolver:
         simulator: _Simulator, scenario: Scenario, spec: Rod, n_elements: int, dt: float
     ) -> ea.CosseratRod:
         nodes = spec.nodes(n_elements)
-        tangent = nodes[1] - nodes[0]
+        tangents = np.diff(nodes, axis=0)
+        tangents /= np.linalg.norm(tangents, axis=1, keepdims=True)
+        # PyElastica takes rest lengths, and from them masses and inertias, from the
+        # positions it is built with. Build it unstretched, then move it to where it starts.
+        rest = nodes[0] + np.concatenate(
+            ([np.zeros(3)], np.cumsum(tangents * spec.length / n_elements, axis=0))
+        )
         rod = ea.CosseratRod.straight_rod(
             n_elements,
             start=nodes[0],
-            direction=tangent / np.linalg.norm(tangent),
+            direction=tangents[0],
             normal=np.asarray(spec.normal, dtype=float),
             base_length=spec.length,
             base_radius=spec.radius,
             density=spec.material.density,
             youngs_modulus=spec.material.youngs_modulus,
             shear_modulus=spec.material.shear_modulus,
-            position=nodes.T.copy(),
+            position=rest.T.copy(),
             directors=_directors(nodes, np.asarray(spec.normal, dtype=float)),
         )
+        rod.position_collection[:] = nodes.T
         simulator.append(rod)
 
         if any(scenario.gravity):

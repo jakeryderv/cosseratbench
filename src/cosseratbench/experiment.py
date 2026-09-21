@@ -71,9 +71,12 @@ class Result:
             "missing": list(self.missing),
             "failure": self.failure,
             "wall_time": self.wall_time,
-            "metrics": dict(self.metrics),
+            # JSON has no NaN or infinity; a metric that could not be computed is null.
+            "metrics": {k: v if np.isfinite(v) else None for k, v in self.metrics.items()},
         }
-        (directory / "result.json").write_text(json.dumps(summary, indent=2) + "\n")
+        (directory / "result.json").write_text(
+            json.dumps(summary, indent=2, allow_nan=False) + "\n"
+        )
         if self.trajectory is not None:
             self.trajectory.save(directory / "trajectory.npz")
 
