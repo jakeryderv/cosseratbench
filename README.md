@@ -66,12 +66,12 @@ myexperiment = "mypackage.experiments:my_experiment"
 ```python
 from cosseratbench import Capability, Scenario, Trajectory
 
+
 class MySolver:
     name = "mysolver"
     capabilities = frozenset({Capability.STRETCH})
 
-    def run(self, scenario: Scenario, *, n_elements: int, n_frames: int) -> Trajectory:
-        ...
+    def run(self, scenario: Scenario, *, n_elements: int, n_frames: int) -> Trajectory: ...
 ```
 
 The built-in solvers and experiments register the same way; see
