@@ -6,7 +6,17 @@ import dataclasses
 import numpy as np
 import pytest
 
-from cosseratbench import registry, run
+from cosseratbench import (
+    End,
+    EndCondition,
+    Material,
+    Motion,
+    PointLoad,
+    Rod,
+    Scenario,
+    registry,
+    run,
+)
 from cosseratbench.experiments.pendulum import static_strain
 
 pytestmark = pytest.mark.slow
@@ -64,3 +74,49 @@ def test_a_cable_that_starts_as_it_hangs_stays_there(solver):
     scenario = dataclasses.replace(pendulum, rods=(hanging,), duration=0.5)
     tip = solver.run(scenario, n_elements=50, n_frames=101).positions[0][:, -1, 2]
     assert np.ptp(tip) < 5e-5
+
+
+def eased(total, seconds=1.0, samples=41):
+    t = np.linspace(0.0, seconds, samples)
+    share = 0.5 - 0.5 * np.cos(np.pi * t / seconds)
+    return tuple(t), tuple(tuple(total * f) for f in share)
+
+
+@pytest.mark.parametrize(
+    "displacement, rotation, tip",
+    [
+        ((0, 0, 0), (0, np.pi / 2, 0), (0, 0, -1)),  # turned a quarter about y
+        ((0, 0.3, 0), (0, 0, 0), (1, 0.3, 0)),  # carried sideways
+    ],
+)
+def test_a_driven_clamp_carries_the_rod_with_it(solver, displacement, rotation, tip):
+    times, moved = eased(np.array(displacement, dtype=float))
+    _, turned = eased(np.array(rotation, dtype=float))
+    rod = Rod(
+        centerline=((0, 0, 0), (1, 0, 0)),
+        radius=0.02,
+        material=Material(1e7, 1e7 / 3.0, 1000.0),
+        start=EndCondition.CLAMPED,
+        start_motion=Motion(times, moved, turned),
+    )
+    # Settling damping drags on the moving rod, so allow it time to catch up.
+    scenario = Scenario(rods=(rod,), duration=6.0, quasi_static=True)
+    final = solver.run(scenario, n_elements=20, n_frames=11).positions[0][-1]
+    np.testing.assert_allclose(final[-1], tip, atol=1e-6)
+
+
+def test_clamping_either_end_bends_a_cantilever_alike(solver):
+    cantilever = registry.load_experiment("cantilever").scenario
+    base = cantilever.rods[0]
+    mirrored = Rod(
+        centerline=((1.0, 0.0, 0.0), (0.0, 0.0, 0.0)),
+        radius=base.radius,
+        material=base.material,
+        end=EndCondition.CLAMPED,
+        loads=(PointLoad(force=base.loads[0].force, at=End.START),),
+    )
+    flipped = dataclasses.replace(cantilever, rods=(mirrored,))
+    usual = solver.run(cantilever, n_elements=20, n_frames=11).positions[0][-1, -1, 2]
+    other = solver.run(flipped, n_elements=20, n_frames=11).positions[0][-1, 0, 2]
+    # MuJoCo holds a far end with a slightly compliant weld: 0.2% more deflection.
+    assert other == pytest.approx(usual, rel=5e-3)

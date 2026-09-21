@@ -7,7 +7,7 @@ import math
 import elastica as ea
 import numpy as np
 
-from cosseratbench.scenario import End, EndCondition, Rod, Scenario
+from cosseratbench.scenario import End, EndCondition, Motion, Rod, Scenario
 from cosseratbench.solver import Capability
 from cosseratbench.trajectory import Trajectory
 
@@ -27,6 +27,30 @@ class _PointForce(ea.NoForces):
 
     def apply_forces(self, system, time=0.0) -> None:
         system.external_forces[:, self.node] += self.force
+
+
+class _DrivenClamp(ea.ConstraintBase):
+    """Moves and turns one end of a rod as a Motion prescribes: its node, and the
+    frame of the element it ends."""
+
+    def __init__(self, *args, node: int, motion: Motion, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.node, self.element, self.motion = node, node if node == 0 else -1, motion
+        self.start_position = self.system.position_collection[:, node].copy()
+        self.start_directors = self.system.director_collection[:, :, self.element].copy()
+
+    def constrain_values(self, system, time) -> None:
+        displacement, rotation = self.motion.pose(float(time))
+        system.position_collection[:, self.node] = self.start_position + displacement
+        # Directors are the rows of the frame; turning them by R turns the frame by R^T.
+        system.director_collection[:, :, self.element] = self.start_directors @ rotation.T
+
+    def constrain_rates(self, system, time) -> None:
+        velocity, angular_velocity = self.motion.rates(float(time))
+        system.velocity_collection[:, self.node] = velocity
+        # PyElastica keeps angular velocity in the element's own frame.
+        frame = system.director_collection[:, :, self.element]
+        system.omega_collection[:, self.element] = frame @ angular_velocity
 
 
 def _directors(nodes: np.ndarray, normal: np.ndarray) -> np.ndarray:
@@ -136,9 +160,13 @@ class PyElasticaSolver:
                 node=0 if load.at is End.START else -1,
             )
 
-        held = [(0, spec.start), (-1, spec.end)]
-        positions = tuple(i for i, c in held if c is not EndCondition.FREE)
-        orientations = tuple(i for i, c in held if c is EndCondition.CLAMPED)
+        held = [(0, End.START), (-1, End.END)]
+        for node, end in held:
+            if (motion := spec.motion(end)) is not None:
+                simulator.constrain(rod).using(_DrivenClamp, node=node, motion=motion)
+        still = [(i, spec.condition(end)) for i, end in held if spec.motion(end) is None]
+        positions = tuple(i for i, c in still if c is not EndCondition.FREE)
+        orientations = tuple(i for i, c in still if c is EndCondition.CLAMPED)
         if positions:
             simulator.constrain(rod).using(
                 ea.FixedConstraint,
