@@ -7,6 +7,8 @@ geometric nonlinearity and shear each change the answer by under 0.1%.
 
 from __future__ import annotations
 
+import numpy as np
+
 from cosseratbench.experiment import Experiment
 from cosseratbench.metrics import settling_residual
 from cosseratbench.scenario import EndCondition, Material, PointLoad, Rod, Scenario
@@ -18,6 +20,14 @@ FORCE = 7.5e-3
 
 def reference_tip_deflection(rod: Rod) -> float:
     return FORCE * rod.length**3 / (3.0 * rod.material.youngs_modulus * rod.second_moment_of_area)
+
+
+def reference_curve(scenario: Scenario, n_points: int = 201) -> np.ndarray:
+    rod = scenario.rods[0]
+    stiffness = rod.material.youngs_modulus * rod.second_moment_of_area  # EI
+    x = np.linspace(0.0, rod.length, n_points)
+    z = -FORCE * x**2 * (3.0 * rod.length - x) / (6.0 * stiffness)
+    return np.stack([x, np.zeros_like(x), z], axis=1)
 
 
 def tip_deflection_error(scenario: Scenario, trajectory: Trajectory) -> float:
@@ -43,6 +53,7 @@ cantilever = Experiment(
         duration=10.0,
         quasi_static=True,
     ),
+    reference=reference_curve,
     metrics={
         "tip_deflection_error": tip_deflection_error,
         "settling_residual": settling_residual,

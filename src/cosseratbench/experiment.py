@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import time
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 
 import numpy as np
@@ -17,6 +17,8 @@ from cosseratbench.trajectory import Trajectory
 # Metrics see only the scenario and the trajectory, never the solver, so every
 # solver is judged by the same code.
 Metric = Callable[[Scenario, Trajectory], float]
+# The analytical answer as a curve [M, 3], where one exists, for drawing beside the solvers'.
+Reference = Callable[[Scenario], np.ndarray]
 
 
 @dataclass(frozen=True)
@@ -27,6 +29,21 @@ class Experiment:
     metrics: Mapping[str, Metric]
     requires: frozenset[Capability] = frozenset()
     n_elements: int = 50  # default resolution
+    reference: Reference | None = None
+
+    def save(self, directory: Path) -> None:
+        """Write everything a reader of the results needs to interpret them without this code."""
+        directory.mkdir(parents=True, exist_ok=True)
+        reference = None if self.reference is None else self.reference(self.scenario).tolist()
+        summary = {
+            "name": self.name,
+            "description": self.description,
+            "scenario": asdict(self.scenario),
+            "rod_lengths": [rod.length for rod in self.scenario.rods],
+            "reference": reference,
+        }
+        text = json.dumps(summary, default=lambda enum: enum.value)
+        (directory / "experiment.json").write_text(text + "\n")
 
 
 @dataclass(frozen=True)
@@ -87,12 +104,16 @@ def run(
         names = tuple(sorted(c.value for c in missing))
         return Result(experiment.name, solver.name, n_elements, missing=names)
 
-    started = time.perf_counter()
+    # A few steps of the same problem first, so that one-off costs (JIT compilation,
+    # library loading) stay out of the timing.
+    warm_up = replace(experiment.scenario, duration=experiment.scenario.duration * 1e-3)
     try:
+        solver.run(warm_up, n_elements=n_elements, n_frames=2)
+        started = time.perf_counter()
         trajectory = solver.run(experiment.scenario, n_elements=n_elements, n_frames=n_frames)
         failure = _divergence(experiment.scenario, trajectory)
     except FloatingPointError as error:
-        failure = str(error)
+        return Result(experiment.name, solver.name, n_elements, failure=str(error))
     wall_time = time.perf_counter() - started
     if failure:
         return Result(

@@ -91,6 +91,7 @@ catenary = Experiment(
         gravity=(0.0, 0.0, -9.81),
         quasi_static=True,
     ),
+    reference=_reference,
     metrics={
         "shape_error": shape_error,
         "sag_error": sag_error,

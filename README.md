@@ -24,7 +24,8 @@
 Early. Two experiments (catenary, cantilever) run against two solvers
 ([PyElastica](https://github.com/GazzolaLab/PyElastica) and
 [MuJoCo](https://mujoco.org)'s cable plugin), each scored against an analytical
-reference. Contact, driven boundaries and the web viewer are not built yet.
+reference, and a web viewer plays the results back. Contact and driven
+boundaries are not built yet.
 
 ## Usage
 
@@ -33,10 +34,24 @@ uv sync --all-extras        # from a clone; installs both solver backends
 uv run cosseratbench list
 uv run cosseratbench run    # every experiment x every solver, saved under results/
 uv run cosseratbench run catenary --solver pyelastica --n-elements 100
+uv run cosseratbench view   # open the results in a browser
 ```
 
 Each run writes `results/<experiment>/<solver>/result.json` (metrics, wall time)
-and `trajectory.npz` (node positions over time).
+and `trajectory.npz` (node positions over time), next to an `experiment.json`
+describing the problem. Wall time excludes a short warm-up run, so one-off costs
+such as JIT compilation do not count against a solver.
+
+## Viewer
+
+`cosseratbench view` serves an interactive page for whatever is under `results/`:
+3D playback of every solver on one timeline, overlaid or split into panes that
+share a camera, with the analytical reference drawn where one exists; the metrics
+table; the speed of the fastest node over time; and the physical scenario.
+
+`cosseratbench site OUT` writes the same page as static files, for hosting
+anywhere (GitHub Pages, for example). The page loads three.js from a CDN, so it
+needs a network connection.
 
 ## How it fits together
 

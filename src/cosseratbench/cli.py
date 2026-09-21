@@ -1,11 +1,12 @@
-"""Command line entry point: ``cosseratbench list`` and ``cosseratbench run``."""
+"""Run rod simulation benchmarks and view the results."""
 
 from __future__ import annotations
 
 import argparse
+import tempfile
 from pathlib import Path
 
-from cosseratbench import registry
+from cosseratbench import registry, site
 from cosseratbench.experiment import Result, run
 
 
@@ -32,6 +33,7 @@ def _run(args: argparse.Namespace) -> None:
     solvers = args.solver or registry.names(registry.SOLVERS)
     for experiment_name in experiments:
         experiment = registry.load_experiment(experiment_name)
+        experiment.save(args.out / experiment_name)
         for solver_name in solvers:
             try:
                 solver = registry.load_solver(solver_name)
@@ -43,6 +45,17 @@ def _run(args: argparse.Namespace) -> None:
             print(
                 f"{experiment_name:12s} {solver_name:12s} n={result.n_elements:<4d} {_describe(result)}"
             )
+
+
+def _view(args: argparse.Namespace) -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        site.build(args.results, Path(directory))
+        site.serve(Path(directory), args.port, open_browser=not args.no_open)
+
+
+def _site(args: argparse.Namespace) -> None:
+    site.build(args.results, args.out)
+    print(f"wrote {args.out}/")
 
 
 def main() -> None:
@@ -66,5 +79,19 @@ def main() -> None:
     )
     run_parser.set_defaults(func=_run)
 
+    view_parser = commands.add_parser("view", help="open the results in a browser")
+    view_parser.add_argument("-r", "--results", type=Path, default=Path("results"))
+    view_parser.add_argument("-p", "--port", type=int, default=8000, help="0 picks a free port")
+    view_parser.add_argument("--no-open", action="store_true", help="do not open a browser")
+    view_parser.set_defaults(func=_view)
+
+    site_parser = commands.add_parser("site", help="write the viewer as a static website")
+    site_parser.add_argument("out", type=Path, help="directory to write")
+    site_parser.add_argument("-r", "--results", type=Path, default=Path("results"))
+    site_parser.set_defaults(func=_site)
+
     args = parser.parse_args()
-    args.func(args)
+    try:
+        args.func(args)
+    except FileNotFoundError as error:
+        parser.exit(1, f"cosseratbench: {error}\n")

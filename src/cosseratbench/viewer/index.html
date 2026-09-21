@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>cosseratbench</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="style.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+      }
+    }
+  </script>
+  <script type="module" src="viewer.js"></script>
+</head>
+<body>
+  <header class="masthead">
+    <h1>cosseratbench</h1>
+    <p>Rope, cable and Cosserat rod solvers, side by side.</p>
+  </header>
+
+  <div class="app">
+    <nav id="experiments" aria-label="Experiments"></nav>
+
+    <main>
+      <section class="stage" aria-label="Simulation playback">
+        <div class="stage-head">
+          <div>
+            <h2 id="title"></h2>
+            <p id="description"></p>
+          </div>
+          <div class="segmented" role="group" aria-label="Layout">
+            <button type="button" data-mode="overlay" aria-pressed="true">Overlay</button>
+            <button type="button" data-mode="split" aria-pressed="false">Split</button>
+          </div>
+        </div>
+
+        <div id="legend" class="legend" role="group" aria-label="Solvers shown"></div>
+
+        <div class="viewport" id="viewport">
+          <canvas id="canvas"></canvas>
+          <div id="panes" class="panes"></div>
+          <p id="scale" class="scale"></p>
+          <p id="notice" class="notice" hidden></p>
+        </div>
+
+        <div class="transport">
+          <button type="button" id="play" aria-label="Play">▶</button>
+          <input type="range" id="scrub" min="0" max="1" step="any" value="0" aria-label="Time">
+          <output id="clock" for="scrub"></output>
+          <label class="speed">Speed
+            <select id="speed">
+              <option value="0.25">0.25×</option>
+              <option value="1" selected>1×</option>
+              <option value="4">4×</option>
+            </select>
+          </label>
+        </div>
+      </section>
+
+      <section class="cards">
+        <article class="card" id="metrics-card">
+          <h3>Metrics</h3>
+          <p class="sub">Computed from each trajectory by the same code; bars are relative to the largest value in the row.</p>
+          <div class="table-scroll"><table id="metrics"></table></div>
+          <ul id="problems" class="problems"></ul>
+        </article>
+
+        <article class="card" id="speed-card">
+          <h3>Fastest node</h3>
+          <p class="sub">Speed of the fastest node, in rod lengths per second, on a log scale. Click to seek.</p>
+          <div id="chart" class="chart"></div>
+        </article>
+
+        <article class="card" id="scenario-card">
+          <h3>Scenario</h3>
+          <p class="sub">The physical problem every solver is given. Numerical settings are each solver's own.</p>
+          <dl id="scenario"></dl>
+        </article>
+      </section>
+    </main>
+  </div>
+</body>
+</html>
