@@ -45,12 +45,17 @@ uv sync --all-extras        # from a clone; installs both solver backends
 uv run cosseratbench list
 uv run cosseratbench run    # every experiment x every solver, saved under results/
 uv run cosseratbench run catenary --solver pyelastica --n-elements 100
+uv run cosseratbench run catenary --vary span --vary time_step_scale
+uv run cosseratbench run --vary all   # every parameter and solver option, one at a time
 uv run cosseratbench view   # open the results in a browser
 ```
 
-Each run writes `results/<experiment>/<solver>/result.json` (metrics, wall time)
-and `trajectory.npz` (node positions over time), next to an `experiment.json`
-describing the problem. Wall time excludes a short warm-up run, so one-off costs
+Each run writes `results/<experiment>/<variant>/<solver>/result.json` (outcome,
+metrics, observations, wall time) and `trajectory.npz` (node positions over time),
+next to an `experiment.json` describing the problem. A variant is the ordinary
+case (`default`) or one change from it: a physical parameter the experiment
+declares, the resolution, or `time_step_scale`, which multiplies the time step
+each solver would choose. `cosseratbench list` shows what each experiment can vary. Wall time excludes a short warm-up run, so one-off costs
 such as JIT compilation do not count against a solver.
 
 ## Viewer

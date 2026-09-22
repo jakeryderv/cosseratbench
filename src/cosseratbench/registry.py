@@ -35,8 +35,12 @@ def names(group: str) -> list[str]:
     return sorted(ep.name for ep in entry_points(group=group))
 
 
-def load_solver(name: str) -> Solver:
-    return _find(SOLVERS, name).load()()
+def load_solver(name: str, **options: float) -> Solver:
+    """The named solver, constructed with any solver options (decision 0008)."""
+    try:
+        return _find(SOLVERS, name).load()(**options)
+    except TypeError as error:
+        raise ValueError(f"solver {name!r} does not accept options {sorted(options)}") from error
 
 
 def load_experiment(name: str) -> Experiment:

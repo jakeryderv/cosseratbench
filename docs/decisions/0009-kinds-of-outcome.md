@@ -1,6 +1,6 @@
 # 0009: Outcomes say what kind of thing happened
 
-**Status:** Accepted, not yet built
+**Status:** Accepted
 
 ## Context
 
@@ -31,3 +31,6 @@ expected.
 - The viewer can show at a glance why a solver has no result.
 - Violations make contact stiffness and similar solver choices visible rather
   than trusted, which is the fairness rule for contact.
+- As built, results record `outcome` and, for a divergence, the time it was first
+  seen. The only observation so far is `max_strain`, the largest stretch or
+  compression of any segment; penetration arrives with contact.

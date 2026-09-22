@@ -9,7 +9,7 @@ import mujoco
 import numpy as np
 
 from cosseratbench.scenario import End, EndCondition, Motion, Rod, Scenario
-from cosseratbench.solver import Capability
+from cosseratbench.solver import Capability, Diverged
 from cosseratbench.trajectory import Trajectory
 
 # How the composite attaches the first segment to the world. A driven start is
@@ -102,8 +102,9 @@ class MuJoCoSolver:
     name = "mujoco"
     capabilities: frozenset[Capability] = frozenset()  # segments neither stretch nor shear
 
-    def __init__(self, time_step_safety: float = 0.5) -> None:
-        self.time_step_safety = time_step_safety
+    def __init__(self, time_step_scale: float = 1.0) -> None:
+        # Half the estimated stability limit, times any scale asked for.
+        self.time_step_safety = 0.5 * time_step_scale
 
     def run(self, scenario: Scenario, *, n_elements: int, n_frames: int) -> Trajectory:
         frame_interval = scenario.duration / (n_frames - 1)
@@ -161,7 +162,7 @@ class MuJoCoSolver:
             ]
 
         frames = [[positions] for positions in nodes()]
-        for _ in range(n_frames - 1):
+        for frame in range(n_frames - 1):
             for _ in range(steps_per_frame):
                 data.qfrc_applied[:] = 0.0
                 for force, body, site in loads:
@@ -180,7 +181,8 @@ class MuJoCoSolver:
                 mujoco.mj_step(model, data)
             # MuJoCo resets a diverged simulation and carries on, so stop at the first sign.
             if data.warning[mujoco.mjtWarning.mjWARN_BADQACC].number:
-                raise FloatingPointError(f"MuJoCo simulation diverged by t = {data.time:.3g} s")
+                # MuJoCo has already reset its clock, so report the frame's time.
+                raise Diverged("MuJoCo simulation diverged", time=(frame + 1) * frame_interval)
             for history, positions in zip(frames, nodes()):
                 history.append(positions)
         times = np.linspace(0.0, scenario.duration, n_frames)

@@ -8,7 +8,7 @@ import elastica as ea
 import numpy as np
 
 from cosseratbench.scenario import End, EndCondition, Motion, Rod, Scenario
-from cosseratbench.solver import Capability
+from cosseratbench.solver import Capability, Diverged
 from cosseratbench.trajectory import Trajectory
 
 # Timoshenko shear coefficient PyElastica uses for circular cross-sections.
@@ -106,8 +106,9 @@ class PyElasticaSolver:
     name = "pyelastica"
     capabilities = frozenset({Capability.STRETCH, Capability.SHEAR})
 
-    def __init__(self, time_step_safety: float = 0.5) -> None:
-        self.time_step_safety = time_step_safety
+    def __init__(self, time_step_scale: float = 1.0) -> None:
+        # Half the estimated stability limit, times any scale asked for.
+        self.time_step_safety = 0.5 * time_step_scale
 
     def run(self, scenario: Scenario, *, n_elements: int, n_frames: int) -> Trajectory:
         frame_interval = scenario.duration / (n_frames - 1)
@@ -129,7 +130,7 @@ class PyElasticaSolver:
                 history.append(rod.position_collection.T.copy())
 
         if not all(np.isfinite(history[-1]).all() for history in frames):
-            raise FloatingPointError("PyElastica simulation diverged")
+            raise Diverged("PyElastica simulation diverged")
         times = np.linspace(0.0, scenario.duration, n_frames)
         return Trajectory(times, tuple(np.stack(history) for history in frames))
 

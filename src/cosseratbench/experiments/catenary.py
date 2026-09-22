@@ -10,13 +10,12 @@ from __future__ import annotations
 
 import numpy as np
 
-from cosseratbench.experiment import Experiment
+from cosseratbench.experiment import Experiment, Parameter
 from cosseratbench.metrics import max_distance_to_curve, settling_residual
 from cosseratbench.scenario import EndCondition, Material, Rod, Scenario
 from cosseratbench.trajectory import Trajectory
 
 LENGTH = 1.0
-SPAN = 0.8
 
 
 def _bisect(f, lo: float, hi: float) -> float:
@@ -37,9 +36,7 @@ def _circular_arc(length: float, span: float, n_points: int = 401) -> np.ndarray
     return np.stack([x, np.zeros_like(x), z], axis=1)
 
 
-def reference_curve(
-    rod: Rod, gravity: float, span: float = SPAN, n_points: int = 2001
-) -> np.ndarray:
+def reference_curve(rod: Rod, gravity: float, span: float, n_points: int = 2001) -> np.ndarray:
     """Elastic catenary between supports at the same height, parametrised by unstretched arc length."""
     length = rod.length
     stiffness = rod.material.youngs_modulus * rod.area  # EA
@@ -59,12 +56,15 @@ def reference_curve(
 
 
 def _reference(scenario: Scenario) -> np.ndarray:
-    return reference_curve(scenario.rods[0], float(np.linalg.norm(scenario.gravity)))
+    rod = scenario.rods[0]
+    span = rod.centerline[-1][0] - rod.centerline[0][0]
+    return reference_curve(rod, float(np.linalg.norm(scenario.gravity)), span)
 
 
 def shape_error(scenario: Scenario, trajectory: Trajectory) -> float:
     """Largest distance from a final node to the reference catenary, in rod lengths."""
-    return max_distance_to_curve(trajectory.positions[0][-1], _reference(scenario)) / LENGTH
+    reference = _reference(scenario)
+    return max_distance_to_curve(trajectory.positions[0][-1], reference) / scenario.rods[0].length
 
 
 def sag_error(scenario: Scenario, trajectory: Trajectory) -> float:
@@ -73,15 +73,13 @@ def sag_error(scenario: Scenario, trajectory: Trajectory) -> float:
     return float(abs(trajectory.positions[0][-1][:, 2].min() - reference) / abs(reference))
 
 
-catenary = Experiment(
-    name="catenary",
-    description="Cable pinned at both ends sagging under gravity, against the analytical catenary.",
-    scenario=Scenario(
+def build(youngs_modulus: float, span: float) -> Scenario:
+    return Scenario(
         rods=(
             Rod(
-                centerline=tuple(map(tuple, _circular_arc(LENGTH, SPAN))),
+                centerline=tuple(map(tuple, _circular_arc(LENGTH, span))),
                 radius=0.005,
-                material=Material(youngs_modulus=1e6, shear_modulus=1e6 / 3.0, density=1000.0),
+                material=Material(youngs_modulus, youngs_modulus / 3.0, density=1000.0),
                 normal=(0.0, 1.0, 0.0),
                 start=EndCondition.PINNED,
                 end=EndCondition.PINNED,
@@ -90,6 +88,28 @@ catenary = Experiment(
         duration=5.0,
         gravity=(0.0, 0.0, -9.81),
         quasi_static=True,
+    )
+
+
+catenary = Experiment(
+    name="catenary",
+    description="Cable pinned at both ends sagging under gravity, against the analytical catenary.",
+    build=build,
+    parameters=(
+        Parameter(
+            "youngs_modulus",
+            default=1e6,
+            values=(1e5, 1e6, 1e7),
+            unit="Pa",
+            description="Softer cables stretch more and sag deeper; the reference accounts for it.",
+        ),
+        Parameter(
+            "span",
+            default=0.8,
+            values=(0.6, 0.8, 0.95),
+            unit="m",
+            description="Distance between the pins, for a 1 m cable; near 1 m it is almost taut.",
+        ),
     ),
     reference=_reference,
     metrics={
@@ -97,4 +117,12 @@ catenary = Experiment(
         "sag_error": sag_error,
         "settling_residual": settling_residual,
     },
+    notes=(
+        "A cable hanging between two pins settles into a catenary, deepened slightly "
+        "by stretch. It checks gravity, tension and stretch in the simplest setting. "
+        "Look at how far each solver's final shape sits from the grey reference: "
+        "a cable that cannot stretch sags too little, most visibly when soft or taut. "
+        "The reference ignores bending stiffness, so on the slack 0.6 m span both "
+        "solvers sit up to about 1% off it for that reason, not their own."
+    ),
 )

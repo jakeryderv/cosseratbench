@@ -23,12 +23,12 @@ from cosseratbench.trajectory import Trajectory
 _REFERENCE_POINTS = 201  # plenty for a smooth line, small in the manifest
 
 
-def _run(result_dir: Path, experiment: dict, data_dir: Path) -> dict:
+def _run(result_dir: Path, file_stem: Path, data_dir: Path) -> dict:
     run = json.loads((result_dir / "result.json").read_text())
     path = result_dir / "trajectory.npz"
     if path.exists():
         trajectory = Trajectory.load(path)
-        file = data_dir / experiment["name"] / f"{run['solver']}.f32"
+        file = data_dir / file_stem.with_suffix(".f32")
         file.parent.mkdir(parents=True, exist_ok=True)
         file.write_bytes(b"".join(rod.astype("<f4").tobytes() for rod in trajectory.positions))
         run["trajectory"] = {
@@ -39,22 +39,41 @@ def _run(result_dir: Path, experiment: dict, data_dir: Path) -> dict:
     return run
 
 
-def _experiment(experiment_dir: Path, data_dir: Path) -> dict:
-    experiment = json.loads((experiment_dir / "experiment.json").read_text())
-    if experiment["reference"] is not None:
-        curve = np.asarray(experiment["reference"])
+def _variant(variant_dir: Path, data_dir: Path) -> dict:
+    variant = json.loads((variant_dir / "experiment.json").read_text())
+    if variant["reference"] is not None:
+        curve = np.asarray(variant["reference"])
         keep = np.linspace(0, len(curve) - 1, min(len(curve), _REFERENCE_POINTS)).round()
-        experiment["reference"] = curve[keep.astype(int)].tolist()
-    experiment["runs"] = [
-        _run(result.parent, experiment, data_dir)
-        for result in sorted(experiment_dir.glob("*/result.json"))
+        variant["reference"] = curve[keep.astype(int)].tolist()
+    stem = Path(variant["name"]) / variant_dir.name
+    variant["key"] = variant_dir.name
+    variant["runs"] = [
+        _run(result.parent, stem / result.parent.name, data_dir)
+        for result in sorted(variant_dir.glob("*/result.json"))
     ]
-    return experiment
+    return variant
+
+
+def _experiment(experiment_dir: Path, data_dir: Path) -> dict:
+    variants = [
+        _variant(path.parent, data_dir) for path in sorted(experiment_dir.glob("*/experiment.json"))
+    ]
+    # The ordinary case first; the rest in the order their names sort.
+    variants.sort(key=lambda v: (bool(v["varied"]), v["key"]))
+    first = variants[0]
+    return {
+        "name": first["name"],
+        "description": first["description"],
+        "notes": first["notes"],
+        "parameters": first["parameters"],
+        "defaults": first["defaults"],
+        "variants": variants,
+    }
 
 
 def build(results: Path, out: Path) -> None:
     """Write the viewer and the data it needs for every experiment under ``results`` to ``out``."""
-    experiments = sorted(results.glob("*/experiment.json"))
+    experiments = sorted({path.parent.parent for path in results.glob("*/*/experiment.json")})
     if not experiments:
         raise FileNotFoundError(f"no results under {results}/; run `cosseratbench run` first")
 
@@ -63,10 +82,15 @@ def build(results: Path, out: Path) -> None:
     data_dir = out / "data"
     shutil.rmtree(data_dir, ignore_errors=True)  # no stale runs from an earlier build
     data_dir.mkdir()
-    manifest = {"experiments": [_experiment(path.parent, data_dir) for path in experiments]}
-    # One list for the whole site, so a solver keeps its colour from one experiment to the next.
+    manifest = {"experiments": [_experiment(path, data_dir) for path in experiments]}
+    # One list for the whole site, so a solver keeps its colour everywhere.
     manifest["solvers"] = sorted(
-        {run["solver"] for experiment in manifest["experiments"] for run in experiment["runs"]}
+        {
+            run["solver"]
+            for experiment in manifest["experiments"]
+            for variant in experiment["variants"]
+            for run in variant["runs"]
+        }
     )
     (data_dir / "manifest.json").write_text(json.dumps(manifest))
 

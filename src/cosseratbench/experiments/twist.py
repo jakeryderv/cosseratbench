@@ -35,14 +35,13 @@ from __future__ import annotations
 
 import numpy as np
 
-from cosseratbench.experiment import Experiment
+from cosseratbench.experiment import Experiment, Parameter
 from cosseratbench.scenario import EndCondition, Material, Motion, PointLoad, Rod, Scenario
 from cosseratbench.trajectory import Trajectory
 
 LENGTH = 1.0
 RADIUS = 0.01
 MATERIAL = Material(youngs_modulus=1e6, shear_modulus=1e6 / 3.0, density=1000.0)
-TENSION = 10.0  # T L^2 / B, dimensionless
 IMPERFECTION = 1e-4  # height of the initial bend, in rod lengths
 LEVELS = (0.96, 0.98, 1.00, 1.02, 1.04, 1.06)  # held twists, as fractions of the reference's
 SPACING = 0.25  # between neighbouring rods, in metres; they do not touch
@@ -141,14 +140,14 @@ def critical_twist_error(scenario: Scenario, trajectory: Trajectory) -> float:
     return abs(measured_critical_twist(scenario, trajectory) - 1.0)
 
 
-def _rod(level: float, offset: float) -> Rod:
+def _rod(level: float, offset: float, tau: float) -> Rod:
     bending = MATERIAL.youngs_modulus * np.pi * RADIUS**4 / 4.0
-    tension = TENSION * bending / LENGTH**2
+    tension = tau * bending / LENGTH**2
     s = np.linspace(0.0, LENGTH, 201)
     bump = IMPERFECTION * LENGTH * (1.0 - np.cos(2.0 * np.pi * s / LENGTH)) / 2.0
     centerline = np.stack([s, offset + bump, np.zeros_like(s)], axis=1)
     straight = Rod(((0.0, 0.0, 0.0), (LENGTH, 0.0, 0.0)), RADIUS, MATERIAL)
-    target = level * critical_twist(straight, TENSION)
+    target = level * critical_twist(straight, tau)
     t = np.linspace(0.0, RAMP, 121)
     turn = target * (0.5 - 0.5 * np.cos(np.pi * t / RAMP))
     twist = Motion(
@@ -169,14 +168,36 @@ def _rod(level: float, offset: float) -> Rod:
     )
 
 
+def build(tension: float) -> Scenario:
+    return Scenario(
+        rods=tuple(_rod(level, i * SPACING, tension) for i, level in enumerate(LEVELS)),
+        duration=DURATION,
+        quasi_static=True,
+    )
+
+
 twist = Experiment(
     name="twist",
     description="Rods under tension twisted past buckling, against Greenhill's critical twist.",
-    scenario=Scenario(
-        rods=tuple(_rod(level, i * SPACING) for i, level in enumerate(LEVELS)),
-        duration=DURATION,
-        quasi_static=True,
+    build=build,
+    parameters=(
+        Parameter(
+            "tension",
+            default=10.0,
+            values=(1.0, 10.0, 30.0),
+            description=(
+                "Dimensionless tension T L^2 / B. More tension needs more twist to "
+                "buckle the rod, which the reference accounts for."
+            ),
+        ),
     ),
     metrics={"critical_twist_error": critical_twist_error},
     n_frames=321,
+    notes=(
+        "Six rods under tension are each twisted to a fraction of the twist at which "
+        "a straight rod buckles, from 0.96 to 1.06, and held. Rods past the threshold "
+        "bow out and grow; the ones below stay straight. The critical twist is fitted "
+        "from how fast the growing rods grow. MuJoCo cannot run it: its clamps give "
+        "way under this much twist."
+    ),
 )

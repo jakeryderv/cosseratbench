@@ -29,8 +29,15 @@ default constraint softness, a pinned cable end drifted 3.4 mm under the cable's
 weight; making the constraint as stiff as the step allows brought it to 1.8 µm.
 
 **The cable cannot stretch.** *Not representable.* On the catenary this costs
-1.2% of the sag, which stretch deepens. It also cannot show a cable bouncing along
-its length when released.
+1.2% of the sag, which stretch deepens, and 7.4% when the cable is nearly taut
+(span 0.95 m for a 1 m cable), where sag depends most on stretch. It also cannot
+show a cable bouncing along its length when released.
+
+**It tolerates larger time steps than its adapter estimates.** *Solver behaviour.*
+At twice the adapter's time step (`time_step_scale=2`) MuJoCo still gives the same
+answers on the catenary and cantilever, in half the time; at four times it
+diverges. PyElastica diverges at twice. The adapters' shared estimate of the
+stable step is therefore conservative for MuJoCo's `implicitfast` integrator.
 
 **Stiff cables are slow.** *Cost.* The cable plugin integrates its stiffness
 explicitly, so the time step shrinks with stiffness and element size. A rigid-rod
@@ -61,6 +68,15 @@ friction at all.
 
 **First runs include JIT compilation.** *Cost.* Numba compilation added about 14 s
 to a first run against 0.5 s warm. The runner times runs after a short warm-up.
+
+## References
+
+**The catenary's reference ignores bending, which matters on slack spans.**
+*Reference limit.* At a 0.6 m span both solvers sit well off the elastic
+catenary (sag error 0.77% for PyElastica, 1.3% for MuJoCo, against 0.014% and
+1.2% at 0.8 m). Halving the cable's radius, which cuts bending stiffness four
+times relative to weight, drops PyElastica's error to 0.24% at 0.6 m and leaves
+0.8 m unchanged, so the gap is the reference's, not the solvers'.
 
 ## Both solvers, and measuring them
 

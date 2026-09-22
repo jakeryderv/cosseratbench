@@ -17,6 +17,20 @@ class Capability(Enum):
     SHEAR = "shear"
 
 
+class Diverged(FloatingPointError):
+    """Raised by a solver whose simulation broke down numerically."""
+
+    def __init__(self, message: str, time: float | None = None) -> None:
+        super().__init__(message)
+        self.time = time  # s, when it was first seen, if known
+
+
+# Solver options are numerical settings that are fair to vary across solvers, kept
+# apart from the scenario (decision 0008). An adapter accepts each as a keyword
+# argument to its constructor; resolution is passed to run() instead.
+TIME_STEP_SCALE = "time_step_scale"  # multiplies the time step the adapter would choose
+
+
 @runtime_checkable
 class Solver(Protocol):
     name: str

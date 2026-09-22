@@ -8,7 +8,6 @@ from cosseratbench.experiments.pendulum import (
     AMPLITUDE,
     GRAVITY,
     LENGTH,
-    MATERIAL,
     amplitude_change,
     first_mode,
     measured_period,
@@ -18,6 +17,7 @@ from cosseratbench.experiments.pendulum import (
     static_strain,
 )
 
+MATERIAL = pendulum.scenario.rods[0].material
 BERNOULLI = 2.404825557695773 / 2.0 * math.sqrt(GRAVITY / LENGTH)  # first zero of J0, halved
 
 
