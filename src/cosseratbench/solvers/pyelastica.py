@@ -39,15 +39,27 @@ class _DrivenClamp(ea.ConstraintBase):
         self.start_position = self.system.position_collection[:, node].copy()
         self.start_directors = self.system.director_collection[:, :, self.element].copy()
 
+    def _held(self, prescribed: np.ndarray, actual: np.ndarray) -> np.ndarray:
+        """The prescribed vector, except along a slide direction, where the rod's own stands."""
+        if self.motion.slides_along is None:
+            return prescribed
+        axis = self.motion.axis
+        return prescribed + axis * (axis @ (actual - prescribed))
+
     def constrain_values(self, system, time) -> None:
         displacement, rotation = self.motion.pose(float(time))
-        system.position_collection[:, self.node] = self.start_position + displacement
+        target = self.start_position + displacement
+        system.position_collection[:, self.node] = self._held(
+            target, system.position_collection[:, self.node]
+        )
         # Directors are the rows of the frame; turning them by R turns the frame by R^T.
         system.director_collection[:, :, self.element] = self.start_directors @ rotation.T
 
     def constrain_rates(self, system, time) -> None:
         velocity, angular_velocity = self.motion.rates(float(time))
-        system.velocity_collection[:, self.node] = velocity
+        system.velocity_collection[:, self.node] = self._held(
+            velocity, system.velocity_collection[:, self.node]
+        )
         # PyElastica keeps angular velocity in the element's own frame.
         frame = system.director_collection[:, :, self.element]
         system.omega_collection[:, self.element] = frame @ angular_velocity

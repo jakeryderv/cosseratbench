@@ -120,3 +120,39 @@ def test_clamping_either_end_bends_a_cantilever_alike(solver):
     other = solver.run(flipped, n_elements=20, n_frames=11).positions[0][-1, 0, 2]
     # MuJoCo holds a far end with a slightly compliant weld: 0.2% more deflection.
     assert other == pytest.approx(usual, rel=5e-3)
+
+
+def test_a_sliding_end_slides_under_a_pull(solver):
+    material = Material(1e6, 1e6 / 3.0, 1000.0)
+    radius, tension = 0.01, 1.0
+    t = np.linspace(0.0, 1.0, 5)
+    still = tuple((0.0, 0.0, 0.0) for _ in t)
+    rod = Rod(
+        centerline=((0, 0, 0), (1, 0, 0)),
+        radius=radius,
+        material=material,
+        start=EndCondition.CLAMPED,
+        end=EndCondition.CLAMPED,
+        end_motion=Motion(tuple(t), still, still, slides_along=(1.0, 0.0, 0.0)),
+        loads=(PointLoad(force=(tension, 0.0, 0.0)),),
+    )
+    # Settling damping is critical for the slowest mode only; the axial ringing a sudden
+    # pull starts dies at half the damping rate, so give it time.
+    scenario = Scenario(rods=(rod,), duration=15.0, quasi_static=True)
+    tip = solver.run(scenario, n_elements=20, n_frames=11).positions[0][-1, -1]
+    stretch = (
+        tension / (material.youngs_modulus * rod.area)
+        if "stretch" in {c.value for c in solver.capabilities}
+        else 0.0
+    )
+    assert tip[0] - 1.0 == pytest.approx(stretch, rel=0.01, abs=2e-6)
+    np.testing.assert_allclose(tip[1:], 0.0, atol=1e-9)
+
+
+def test_twist_buckles_near_greenhill(solver):
+    if solver.name == "mujoco":
+        pytest.skip("MuJoCo's welds diverge here; see the note in its adapter")
+    result = run(registry.load_experiment("twist"), solver)
+    assert result.failure is None
+    # Measured at the default 50 elements: 1.1%; the method itself is good to ~0.5%.
+    assert result.metrics["critical_twist_error"] < 0.03

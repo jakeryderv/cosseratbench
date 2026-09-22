@@ -47,6 +47,9 @@ def _rod_xml(
     </composite>"""
     # MuJoCo's equality constraints are soft, and at their default stiffness a held end
     # drifts by millimetres under the cable's weight. Make them as stiff as the step allows.
+    # Known limits of welds, found on the twist experiment: a cable clamped at both ends
+    # diverges once it holds about 5 rad of twist, or sooner if twisted at a few rad/s,
+    # and softer welds survive only by letting the clamped end turn with the twist.
     stiff = f'solref="{2.0 * dt!r} 1" solimp="0.99 0.999 0.0001"'
     equality = ""
     mocaps = []
@@ -61,11 +64,27 @@ def _rod_xml(
         clamped = rod.condition(end) is EndCondition.CLAMPED
         if clamped and (end is End.END or driven_start):
             name = f"r{index}_{end.value}_clamp"
-            body += f"""
+            motion = rod.motion(end)
+            if motion is not None and motion.slides_along is not None:
+                # The end is welded to a carriage that slides along the clamp. It turns only
+                # about the slide direction, so the carriage's axis stays that direction.
+                # The carriage's mass, one element's, rides with the end.
+                mass = m.density * rod.area * rod.length / n_elements
+                held = f"{name}_carriage"
+                body += f"""
+    <body name="{name}" mocap="true" pos="{_numbers(point)}">
+      <body name="{held}">
+        <joint type="slide" axis="{_numbers(motion.axis)}"/>
+        <inertial pos="0 0 0" mass="{mass!r}" diaginertia="{mass * rod.radius**2!r} {mass * rod.radius**2!r} {mass * rod.radius**2!r}"/>
+      </body>
+    </body>"""
+            else:
+                held = name
+                body += f"""
     <body name="{name}" mocap="true" pos="{_numbers(point)}"/>"""
             equality += f"""
-    <weld body1="r{index}_{segment}" body2="{name}" {stiff}/>"""
-            mocaps.append((name, point, rod.motion(end)))
+    <weld body1="r{index}_{segment}" body2="{held}" {stiff}/>"""
+            mocaps.append((name, point, motion))
     return body, equality, mocaps
 
 
@@ -159,10 +178,10 @@ class MuJoCoSolver:
                     mujoco.mju_mat2Quat(quaternion, rotation.ravel())
                     data.mocap_quat[mocap] = quaternion
                 mujoco.mj_step(model, data)
+            # MuJoCo resets a diverged simulation and carries on, so stop at the first sign.
+            if data.warning[mujoco.mjtWarning.mjWARN_BADQACC].number:
+                raise FloatingPointError(f"MuJoCo simulation diverged by t = {data.time:.3g} s")
             for history, positions in zip(frames, nodes()):
                 history.append(positions)
-
-        if data.warning[mujoco.mjtWarning.mjWARN_BADQACC].number:
-            raise FloatingPointError("MuJoCo simulation diverged")
         times = np.linspace(0.0, scenario.duration, n_frames)
         return Trajectory(times, tuple(np.stack(history) for history in frames))

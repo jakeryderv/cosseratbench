@@ -102,6 +102,17 @@ def test_motion_must_start_at_rest_where_the_end_is():
         Motion(times=(1.0, 2.0), displacement=((0, 0, 0),) * 2, rotation=((0, 0, 0),) * 2)
 
 
+def test_a_sliding_end_turns_only_about_its_slide_direction():
+    zero = ((0, 0, 0),) * 2
+    Motion(
+        times=(0.0, 1.0), displacement=zero, rotation=((0, 0, 0), (2, 0, 0)), slides_along=(1, 0, 0)
+    )
+    with pytest.raises(ValueError, match="slide"):
+        Motion((0.0, 1.0), zero, ((0, 0, 0), (0, 2, 0)), slides_along=(1, 0, 0))
+    with pytest.raises(ValueError, match="slide"):
+        Motion((0.0, 1.0), ((0, 0, 0), (0.1, 0, 0)), zero, slides_along=(1, 0, 0))
+
+
 def test_only_a_clamped_end_can_be_driven():
     turn = Motion(times=(0.0, 1.0), displacement=((0, 0, 0),) * 2, rotation=((0, 0, 0), (0, 0, 1)))
     with pytest.raises(ValueError, match="clamped"):
