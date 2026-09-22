@@ -191,8 +191,30 @@ def max_strain(scenario: Scenario, trajectory: Trajectory) -> float:
     return worst
 
 
-# Observed on every completed run, whatever the experiment.
-OBSERVATIONS: Mapping[str, Metric] = {"max_strain": max_strain}
+def max_penetration(scenario: Scenario, trajectory: Trajectory) -> float:
+    """Deepest any rod node sinks into any obstacle at any time, in rod radii.
+
+    Nodes, not segments: a straight segment between two nodes on a curved obstacle
+    cuts inside it by a depth set by resolution alone, which would hide how stiff a
+    solver makes contact. NaN when there is nothing to sink into.
+    """
+    if not scenario.obstacles:
+        return float("nan")
+    worst = 0.0
+    for rod, positions in zip(scenario.rods, trajectory.positions):
+        for cylinder in scenario.obstacles:
+            axis = cylinder.unit_axis
+            offset = positions - np.asarray(cylinder.center)
+            along = offset @ axis
+            across = np.linalg.norm(offset - along[..., None] * axis, axis=2)
+            within = np.abs(along) <= cylinder.length / 2
+            depth = np.where(within, cylinder.radius + rod.radius - across, 0.0)
+            worst = max(worst, float(depth.max()) / rod.radius)
+    return worst
+
+
+# Observed on every completed run, whatever the experiment; NaN where it does not apply.
+OBSERVATIONS: Mapping[str, Metric] = {"max_strain": max_strain, "max_penetration": max_penetration}
 
 
 def run(

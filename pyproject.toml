@@ -31,6 +31,7 @@ catenary = "cosseratbench.experiments.catenary:catenary"
 cantilever = "cosseratbench.experiments.cantilever:cantilever"
 pendulum = "cosseratbench.experiments.pendulum:pendulum"
 twist = "cosseratbench.experiments.twist:twist"
+capstan = "cosseratbench.experiments.capstan:capstan"
 
 [dependency-groups]
 dev = ["pytest>=8", "ruff>=0.6"]

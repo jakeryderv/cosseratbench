@@ -20,7 +20,7 @@ Experiments are of two kinds.
   Currently: catenary, cantilever, pendulum, twist.
 - **Exploration** experiments show behaviour in harder or combined situations.
   They carry observations instead of a score: penetration, unwanted stretch,
-  energy drift, runtime, whether and how a run failed.
+  energy drift, runtime, whether and how a run failed. Currently: capstan.
 
 ## Consequences
 

@@ -2,6 +2,7 @@
 
 from cosseratbench.experiment import Experiment, Metric, Parameter, Result, run
 from cosseratbench.scenario import (
+    Cylinder,
     End,
     EndCondition,
     Material,
@@ -15,6 +16,7 @@ from cosseratbench.trajectory import Trajectory
 
 __all__ = [
     "Capability",
+    "Cylinder",
     "Diverged",
     "End",
     "EndCondition",

@@ -209,10 +209,34 @@ class Rod:
 
 
 @dataclass(frozen=True)
+class Cylinder:
+    """A fixed, rigid cylinder that rods touch and slide on.
+
+    ``friction`` is the Coulomb coefficient between it and any rod: a rod pressed
+    on it with force N resists sliding with force up to friction * N, the same
+    whether starting to slide or already sliding. How a solver makes contact stiff
+    and friction sticky is its own business; the benchmark reports how far rods
+    sink in, and whether rods that should hold still creep.
+    """
+
+    center: Vec3  # m
+    axis: Vec3  # direction along the cylinder
+    radius: float  # m
+    length: float  # m, centred on ``center``
+    friction: float = 0.0
+
+    @property
+    def unit_axis(self) -> np.ndarray:
+        axis = np.asarray(self.axis, dtype=float)
+        return axis / np.linalg.norm(axis)
+
+
+@dataclass(frozen=True)
 class Scenario:
     rods: tuple[Rod, ...]
     duration: float  # s
     gravity: Vec3 = (0.0, 0.0, 0.0)  # m/s^2
+    obstacles: tuple[Cylinder, ...] = ()
     # When True the result is equilibrium: the final state, or the states passed
     # through as a load changes slowly, and a solver may add whatever dissipation
     # gets it there. When False the dynamics are the result, and a solver must add

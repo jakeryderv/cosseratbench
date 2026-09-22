@@ -202,6 +202,14 @@ function bounds() {
   };
   for (const entry of state.entries) for (const rod of entry.rods) include(rod.frames);
   if (state.variant.reference) include(state.variant.reference.flat());
+  for (const obstacle of state.variant.scenario.obstacles ?? []) {
+    const reach = obstacle.radius + obstacle.length / 2;
+    for (const axis of [0, 1, 2]) for (const sign of [-1, 1]) {
+      const corner = [...obstacle.center];
+      corner[axis] += sign * reach;
+      include(corner);
+    }
+  }
   return box;
 }
 
@@ -420,6 +428,17 @@ async function showVariant(variant) {
     });
   });
 
+  // Obstacles, drawn solid but quiet: the rods are what matter.
+  for (const obstacle of variant.scenario.obstacles ?? []) {
+    const geometry = new THREE.CylinderGeometry(obstacle.radius, obstacle.radius, obstacle.length, 64);
+    const material = new THREE.MeshStandardMaterial({ color: cssColor("--axis"), roughness: 0.8, transparent: true, opacity: 0.75 });
+    const mesh = new THREE.Mesh(geometry, material);
+    const axis = new THREE.Vector3(...obstacle.axis).normalize();
+    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), axis); // three.js cylinders run along y
+    mesh.position.set(...obstacle.center);
+    content.add(mesh);
+  }
+
   state.reference = null;
   if (variant.reference) {
     const geometry = new THREE.BufferGeometry().setFromPoints(variant.reference.map((p) => new THREE.Vector3(...p)));
@@ -531,7 +550,9 @@ function layoutChanged() {
 function buildMetrics() {
   const runs = state.variant.runs;
   const names = [...new Set(runs.flatMap((run) => Object.keys(run.metrics)))];
-  const observed = [...new Set(runs.flatMap((run) => Object.keys(run.observations ?? {})))];
+  // An observation that applies to no run here (penetration, with nothing to touch) is left out.
+  const observed = [...new Set(runs.flatMap((run) => Object.entries(run.observations ?? {})
+    .filter(([, value]) => value != null).map(([name]) => name)))];
   const rows = [
     ...names.map((name) => ({ label: name.replaceAll("_", " "), value: (run) => run.metrics[name], bar: true })),
     ...(observed.length ? [{ section: "Observed on every run" }] : []),
@@ -596,6 +617,10 @@ function buildScenario() {
   const g = Math.hypot(...scenario.gravity);
   items.push(
     ["Gravity", g ? `${formatNumber(g)} m/s² along ${direction(scenario.gravity)}` : "none"],
+    ...(scenario.obstacles ?? []).map((o, i) => [
+      `Cylinder${scenario.obstacles.length > 1 ? ` ${i + 1}` : ""}`,
+      `radius ${si(o.radius, "m")}, friction ${formatNumber(o.friction)}`,
+    ]),
     ["Duration", `${formatNumber(scenario.duration)} s`],
     ["Judged on", scenario.quasi_static ? "final equilibrium; solvers may add damping to reach it" : "the motion itself; no added damping"],
   );

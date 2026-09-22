@@ -7,7 +7,7 @@ import math
 import elastica as ea
 import numpy as np
 
-from cosseratbench.scenario import End, EndCondition, Motion, Rod, Scenario
+from cosseratbench.scenario import Cylinder, End, EndCondition, Motion, Rod, Scenario
 from cosseratbench.solver import Capability, Diverged
 from cosseratbench.trajectory import Trajectory
 
@@ -15,7 +15,7 @@ from cosseratbench.trajectory import Trajectory
 _SHEAR_COEFFICIENT = 27.0 / 28.0
 
 
-class _Simulator(ea.BaseSystemCollection, ea.Constraints, ea.Forcing, ea.Damping):
+class _Simulator(ea.BaseSystemCollection, ea.Constraints, ea.Forcing, ea.Damping, ea.Contact):
     pass
 
 
@@ -118,6 +118,10 @@ class PyElasticaSolver:
 
         simulator = _Simulator()
         rods = [self._add_rod(simulator, scenario, spec, n_elements, dt) for spec in scenario.rods]
+        for obstacle in scenario.obstacles:
+            cylinder = self._add_cylinder(simulator, obstacle)
+            for spec, rod in zip(scenario.rods, rods):
+                self._add_contact(simulator, rod, cylinder, spec, obstacle, n_elements, dt)
         simulator.finalize()
 
         stepper = ea.PositionVerlet()
@@ -132,6 +136,50 @@ class PyElasticaSolver:
                 raise Diverged("PyElastica simulation diverged", time=float(time))
         times = np.linspace(0.0, scenario.duration, n_frames)
         return Trajectory(times, tuple(np.stack(history) for history in frames))
+
+    @staticmethod
+    def _add_cylinder(simulator: _Simulator, obstacle: Cylinder) -> ea.Cylinder:
+        axis = obstacle.unit_axis
+        normal = np.cross(axis, [1.0, 0.0, 0.0] if abs(axis[0]) < 0.9 else [0.0, 1.0, 0.0])
+        cylinder = ea.Cylinder(
+            start=np.asarray(obstacle.center) - axis * obstacle.length / 2,
+            direction=axis,
+            normal=normal / np.linalg.norm(normal),
+            base_length=obstacle.length,
+            base_radius=obstacle.radius,
+            density=1000.0,  # held still, so its mass does not matter
+        )
+        simulator.append(cylinder)
+        simulator.constrain(cylinder).using(
+            ea.OneEndFixedBC, constrained_position_idx=(0,), constrained_director_idx=(0,)
+        )
+        return cylinder
+
+    @staticmethod
+    def _add_contact(
+        simulator: _Simulator,
+        rod: ea.CosseratRod,
+        cylinder: ea.Cylinder,
+        spec: Rod,
+        obstacle: Cylinder,
+        n_elements: int,
+        dt: float,
+    ) -> None:
+        # Contact is a penalty spring on each element. Make it as stiff as the explicit
+        # step allows, a contact vibration of a node no faster than 0.5 / dt, and damp
+        # it near critically. Static friction is imitated by viscous friction, the lesser
+        # of it and Coulomb's, so a strong viscous term only stops rods creeping: Coulomb's
+        # cap keeps the force bounded. The benchmark reports how deep rods sink and
+        # whether they creep, so these choices are visible rather than trusted.
+        node_mass = spec.material.density * spec.area * spec.length / n_elements
+        stiffness = node_mass * (0.5 / dt) ** 2
+        simulator.detect_contact_between(rod, cylinder).using(
+            ea.RodCylinderContact,
+            k=stiffness,
+            nu=np.sqrt(stiffness * node_mass),
+            velocity_damping_coefficient=1e3 * node_mass / dt,
+            friction_coefficient=obstacle.friction,
+        )
 
     @staticmethod
     def _add_rod(
