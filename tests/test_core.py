@@ -1,4 +1,5 @@
 import json
+import math
 
 import numpy as np
 import pytest
@@ -259,3 +260,19 @@ def test_solvers_are_built_with_options():
     assert solver.time_step_safety == pytest.approx(1.0)
     with pytest.raises(ValueError):
         registry.load_solver("pyelastica", bogus=1.0)
+
+
+def test_penetration_is_how_deep_nodes_sink_into_obstacles():
+    from cosseratbench import Cylinder
+    from cosseratbench.experiment import max_penetration
+
+    cylinder = Cylinder(center=(0, 0, 0), axis=(0, 1, 0), radius=0.1, length=1.0)
+    rod = Rod(((-1, 0, 0.12), (1, 0, 0.12)), 0.01, RUBBER)  # resting 1 cm above the surface
+    positions = np.zeros((2, 3, 3))
+    positions[:, :, 0] = (-1.0, 0.0, 1.0)
+    positions[:, :, 2] = 0.11  # just touching
+    positions[1, 1, 2] = 0.105  # its middle node sinks half its radius
+    touching = Scenario(rods=(rod,), obstacles=(cylinder,), duration=1.0)
+    trajectory = Trajectory(np.array([0.0, 1.0]), (positions,))
+    assert max_penetration(touching, trajectory) == pytest.approx(0.5)
+    assert math.isnan(max_penetration(Scenario(rods=(rod,), duration=1.0), trajectory))

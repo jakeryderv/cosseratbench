@@ -2,6 +2,7 @@
 error its physical model and default resolution explain."""
 
 import dataclasses
+import itertools
 
 import numpy as np
 import pytest
@@ -156,3 +157,43 @@ def test_twist_buckles_near_greenhill(solver):
     assert result.failure is None
     # Measured at the default 50 elements: 1.1%; the method itself is good to ~0.5%.
     assert result.metrics["critical_twist_error"] < 0.03
+
+
+def test_settling_damping_lets_a_free_rod_fall_at_its_terminal_speed(solver):
+    # Damping proportional to mass at rate c makes a free body fall at g / c. MuJoCo's
+    # adapter once computed it from a stale mass matrix, and a free cable spun up.
+    rod = Rod(((0, 0, 0), (1, 0, 0)), 0.01, Material(1e6, 1e6 / 3.0, 1000.0))
+    scenario = Scenario(rods=(rod,), duration=3.0, gravity=(0.0, 0.0, -9.81), quasi_static=True)
+    heights = solver.run(scenario, n_elements=20, n_frames=31).positions[0][:, :, 2].mean(axis=1)
+    speed = (heights[-1] - heights[-2]) / 0.1
+    assert speed == pytest.approx(-9.81 / (2.0 * scenario.slowest_frequency()), rel=0.02)
+
+
+@pytest.mark.parametrize("overhang, slides", [(0.5, False), (1.5, True)])
+def test_capstan_rope_holds_or_slides_as_friction_allows(solver, overhang, slides):
+    result = run(registry.load_experiment("capstan"), solver, values={"overhang": overhang})
+    assert result.outcome == "completed"
+    if slides:
+        assert result.metrics["slide"] > 0.1
+    else:
+        assert result.metrics["slide"] < 0.005
+    assert result.observations["max_penetration"] < 0.5
+
+
+def test_mujoco_frames_a_cable_that_starts_straight_then_curves():
+    mujoco = pytest.importorskip("mujoco")
+    from cosseratbench.experiments.capstan import capstan
+    from cosseratbench.solvers.mujoco import _rod_xml
+
+    body, _, _ = _rod_xml(0, capstan.scenario.rods[0], 100, 2e-4, contact=True)
+    model = mujoco.MjModel.from_xml_string(
+        '<mujoco><extension><plugin plugin="mujoco.elasticity.cable"/></extension>'
+        f"<worldbody>{body}</worldbody></mujoco>"
+    )
+    data = mujoco.MjData(model)
+    mujoco.mj_forward(model, data)
+    names = ["r0_B_first"] + [f"r0_B_{k}" for k in range(1, 99)] + ["r0_B_last"]
+    quaternions = [data.xquat[model.body(name).id] for name in names]
+    # Neighbouring segments start at most a small bend apart, never half a turn.
+    turns = [2 * np.arccos(min(1.0, abs(float(a @ b)))) for a, b in itertools.pairwise(quaternions)]
+    assert max(turns) < 0.2

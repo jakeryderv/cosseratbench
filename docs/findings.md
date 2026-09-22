@@ -48,6 +48,30 @@ explicitly, so the time step shrinks with stiffness and element size. A rigid-ro
 pendulum was rejected because it would take 6 to 20 minutes per run; the cantilever
 at 80 elements took five minutes against PyElastica's eight seconds.
 
+**Its default friction cone lets ropes slip early.** *Solver setting.* MuJoCo
+approximates the friction cone with a pyramid by default, which allows as little as
+mu / sqrt(2) of friction for sliding askew to the contact's axes. On the capstan
+the rope slid off at 95% of the overhang that holds. With elliptic cones it held
+at 95% and slid at 110%, matching the equilibrium, so the adapter uses them.
+
+**Cables that start straight and then curve are built broken.** *Solver bug.*
+MuJoCo frames a cable's first segment from the bend at its first vertex. A cable
+whose first two edges are in line has no bend there, the frame is undefined, and
+where the cable later curves two neighbouring segments come out half a turn apart;
+the simulation diverges at once. Arcs and straight cables are unaffected, which is
+why no earlier experiment met it. The adapter nudges the third vertex a millionth
+of a segment toward the rod's reference normal, which defines the frame.
+
+**Damping from last step's mass matrix spins up free cables.** *Adapter mistake.*
+The adapter's settling damping is minus a rate times the mass matrix times the
+velocities. Computed with the mass matrix of the previous step, it made any cable
+with a free end diverge within a second at ordinary time steps: a thin cable's mass
+matrix is badly conditioned (a segment's inertia about its own axis is about 10^4
+times smaller than its other terms), so small changes between steps turn into
+large spurious spin. Held ends had hidden it. Computing it between MuJoCo's two
+half steps, from the current matrix, fixed it: a damped cable now falls at exactly
+its terminal speed.
+
 **A diverged run resets and carries on.** *Solver behaviour.* MuJoCo resets the
 state and continues after a bad acceleration, so a diverged run looks like it
 finished. The adapter checks MuJoCo's warning counter after every frame.
@@ -71,6 +95,13 @@ friction is imitated by making that coefficient large. A rope that should hold
 still creeps instead. Contact between rods, or of a rod with itself, has no
 friction at all.
 
+**On a curved obstacle its friction holds less than Coulomb's, at coarse
+resolution.** *Open question.* On the capstan at 100 elements (about 23 on the
+cylinder), PyElastica's rope slides off at 70% of the overhang that holds, where
+MuJoCo holds to 95%. At 200 elements it holds to at least 80%. Stronger friction
+makes it worse, not better: at mu = 0.6 it slides below 80%. The cause is not
+yet known.
+
 **First runs include JIT compilation.** *Cost.* Numba compilation added about 14 s
 to a first run against 0.5 s warm. The runner times runs after a short warm-up.
 
@@ -82,6 +113,13 @@ catenary (sag error 0.77% for PyElastica, 1.3% for MuJoCo, against 0.014% and
 1.2% at 0.8 m). Halving the cable's radius, which cuts bending stiffness four
 times relative to weight, drops PyElastica's error to 0.24% at 0.6 m and leaves
 0.8 m unchanged, so the gap is the reference's, not the solvers'.
+
+**The plain capstan equation ignores the rope lying on the cylinder.** *Reference
+limit.* Its weight presses it on and adds friction. For the capstan experiment's
+rope, a 5 cm cylinder under a 15 cm overhang, the overhang that holds is 1.26 times
+what the plain equation predicts at mu = 0.3. The experiment's reference includes
+it (checked against direct integration), and MuJoCo with elliptic friction cones
+agrees.
 
 ## Both solvers, and measuring them
 
@@ -110,6 +148,12 @@ of twist. Growth measured on frames after that is meaningless; at three times th
 usual tension it made the twist experiment read 5.1% where the rods' actual
 growth gives 1.7%. Growth is now measured only until a rod first leaves the
 exponential range.
+
+**Penetration measured on segments reflects resolution, not contact.**
+*Measurement pitfall.* A straight segment between two nodes on a curved obstacle
+cuts inside it by the chord's bulge. Measured there, both solvers showed the same
+penetration at every overhang on the capstan. It is measured at nodes instead, and
+the capstan's rope is drawn so its segments rest on the cylinder.
 
 **Timing zero crossings is fragile.** *Measurement pitfall.* A 0.65 mm vibration
 riding on a 1.25 cm swing gave extra crossings and a 52% period error. Fitting a

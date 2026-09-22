@@ -8,7 +8,7 @@ import math
 import mujoco
 import numpy as np
 
-from cosseratbench.scenario import End, EndCondition, Motion, Rod, Scenario
+from cosseratbench.scenario import Cylinder, End, EndCondition, Motion, Rod, Scenario
 from cosseratbench.solver import Capability, Diverged
 from cosseratbench.trajectory import Trajectory
 
@@ -21,17 +21,68 @@ def _numbers(values) -> str:
     return " ".join(repr(float(v)) for v in np.ravel(values))
 
 
+# Contact groups: cable segments touch obstacles but not each other (no self-contact yet).
+_CABLE_CONTACT = 'contype="1" conaffinity="2"'
+_OBSTACLE_CONTACT = 'contype="2" conaffinity="1"'
+
+
+def _obstacle_xml(obstacle: Cylinder, dt: float) -> str:
+    half = obstacle.unit_axis * obstacle.length / 2
+    ends = np.concatenate([np.asarray(obstacle.center) - half, np.asarray(obstacle.center) + half])
+    # MuJoCo takes the larger of two geoms' friction, so the cable carries none of its own.
+    # The model uses elliptic friction cones: MuJoCo's default pyramid allows as little as
+    # mu / sqrt(2) of friction for sliding askew to the contact's axes, and let the capstan's
+    # rope slide off at 95% of the overhang that holds.
+    # Contact is as stiff as the step allows, like the welds: at MuJoCo's default a rope
+    # sank 40% of its radius into the capstan's cylinder; at this, 8%.
+    return f"""
+    <geom type="cylinder" fromto="{_numbers(ends)}" size="{obstacle.radius!r}"
+          friction="{obstacle.friction!r} 0 0" condim="3" solref="{2.0 * dt!r} 1"
+          {_OBSTACLE_CONTACT}/>"""
+
+
+def _defined_first_frame(nodes: np.ndarray, normal: np.ndarray) -> np.ndarray:
+    """MuJoCo takes a cable's first frame from its bend at the first vertex. A cable
+    that starts straight has none, so the frame is undefined, and where the cable
+    later curves its segments come out turned half a turn from each other and it
+    diverges at once. Nudging the third vertex a millionth of a segment toward the
+    rod's reference normal defines the frame, as the one PyElastica uses."""
+    if len(nodes) < 3:
+        return nodes
+    first, second = np.diff(nodes[:3], axis=0)
+    length = np.linalg.norm(first)
+    if np.linalg.norm(np.cross(first, second)) > 1e-9 * length * np.linalg.norm(second):
+        return nodes
+    tangent = first / length
+    across = normal - (normal @ tangent) * tangent
+    if np.linalg.norm(across) < 1e-12:  # a normal along the rod: pick any perpendicular
+        across = np.cross(tangent, [1.0, 0.0, 0.0] if abs(tangent[0]) < 0.9 else [0.0, 1.0, 0.0])
+    nudged = nodes.copy()
+    nudged[2] += 1e-6 * length * across / np.linalg.norm(across)
+    return nudged
+
+
 def _rod_xml(
-    index: int, rod: Rod, n_elements: int, dt: float
+    index: int, rod: Rod, n_elements: int, dt: float, contact: bool = False
 ) -> tuple[str, str, list[tuple[str, np.ndarray, Motion | None]]]:
     """MJCF for one rod: its worldbody elements, its equality constraints, and the
     mocap bodies holding its clamped ends as (name, starting position, motion)."""
     m = rod.material
-    nodes = rod.nodes(n_elements)
+    nodes = _defined_first_frame(rod.nodes(n_elements), np.asarray(rod.normal, dtype=float))
     segments = np.linalg.norm(np.diff(nodes, axis=0), axis=1)
     # The chain cannot stretch, so it is built in its initial shape, stretched or not.
     # Scaling the density keeps the mass that of the unstretched rod.
     density = float(m.density * rod.length / segments.sum())
+    if contact:
+        # Capsules roll smoothly over curved obstacles; give each the mass of its segment.
+        geom = (
+            f'type="capsule" size="{rod.radius!r}" '
+            f'mass="{m.density * rod.area * rod.length / n_elements!r}" '
+            f'friction="0 0 0" {_CABLE_CONTACT}'
+        )
+    else:
+        geom = f'type="cylinder" size="{rod.radius!r}" density="{density!r}" contype="0" conaffinity="0"'
+
     driven_start = rod.start_motion is not None
     initial = "free" if driven_start else _INITIAL[rod.start]
     body = f"""
@@ -43,7 +94,7 @@ def _rod_xml(
         <config key="flat" value="true"/>
       </plugin>
       <joint kind="main" damping="0"/>
-      <geom type="cylinder" size="{rod.radius!r}" density="{density!r}" contype="0" conaffinity="0"/>
+      <geom {geom}/>
     </composite>"""
     # MuJoCo's equality constraints are soft, and at their default stiffness a held end
     # drifts by millimetres under the cable's weight. Make them as stiff as the step allows.
@@ -112,12 +163,15 @@ class MuJoCoSolver:
         steps_per_frame = math.ceil(frame_interval / limit)
         dt = frame_interval / steps_per_frame
 
-        parts = [_rod_xml(i, rod, n_elements, dt) for i, rod in enumerate(scenario.rods)]
+        contact = bool(scenario.obstacles)
+        parts = [_rod_xml(i, rod, n_elements, dt, contact) for i, rod in enumerate(scenario.rods)]
+        obstacles = "".join(_obstacle_xml(o, dt) for o in scenario.obstacles)
         model = mujoco.MjModel.from_xml_string(f"""
 <mujoco>
   <extension><plugin plugin="mujoco.elasticity.cable"/></extension>
-  <option timestep="{dt!r}" gravity="{_numbers(scenario.gravity)}" integrator="implicitfast"/>
-  <worldbody>{"".join(body for body, _, _ in parts)}
+  <option timestep="{dt!r}" gravity="{_numbers(scenario.gravity)}" integrator="implicitfast"
+          cone="elliptic"/>
+  <worldbody>{obstacles}{"".join(body for body, _, _ in parts)}
   </worldbody>
   <equality>{"".join(equality for _, equality, _ in parts)}
   </equality>
@@ -164,6 +218,17 @@ class MuJoCoSolver:
         frames = [[positions] for positions in nodes()]
         for frame in range(n_frames - 1):
             for _ in range(steps_per_frame):
+                # Aim each driven clamp where the motion has it at the end of this step.
+                for mocap, point, motion in driven:
+                    displacement, rotation = motion.pose(data.time + dt)
+                    data.mocap_pos[mocap] = point + displacement
+                    mujoco.mju_mat2Quat(quaternion, rotation.ravel())
+                    data.mocap_quat[mocap] = quaternion
+                # Forces are computed from this step's state, between MuJoCo's two half
+                # steps. The mass matrix in particular must be current: a thin cable's is
+                # badly conditioned, and damping computed with last step's makes a free
+                # cable spin up and diverge.
+                mujoco.mj_step1(model, data)
                 data.qfrc_applied[:] = 0.0
                 for force, body, site in loads:
                     mujoco.mj_applyFT(
@@ -172,13 +237,7 @@ class MuJoCoSolver:
                 if damping:
                     mujoco.mj_mulM(model, data, momentum, data.qvel)
                     data.qfrc_applied -= damping * momentum
-                # Aim each driven clamp where the motion has it at the end of this step.
-                for mocap, point, motion in driven:
-                    displacement, rotation = motion.pose(data.time + dt)
-                    data.mocap_pos[mocap] = point + displacement
-                    mujoco.mju_mat2Quat(quaternion, rotation.ravel())
-                    data.mocap_quat[mocap] = quaternion
-                mujoco.mj_step(model, data)
+                mujoco.mj_step2(model, data)
             # MuJoCo resets a diverged simulation and carries on, so stop at the first sign.
             if data.warning[mujoco.mjtWarning.mjWARN_BADQACC].number:
                 # MuJoCo has already reset its clock, so report the frame's time.

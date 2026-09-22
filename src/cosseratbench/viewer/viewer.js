@@ -200,8 +200,18 @@ function bounds() {
   const include = (array) => {
     for (let k = 0; k < array.length; k += 3) box.expandByPoint(point.set(array[k], array[k + 1], array[k + 2]));
   };
-  for (const entry of state.entries) for (const rod of entry.rods) include(rod.frames);
+  // The starting scene: a run that ends with a rope falling away would otherwise shrink
+  // everything that matters to a speck. Zooming out follows whatever leaves the frame.
+  for (const entry of state.entries) for (const rod of entry.rods) include(rod.frames.subarray(0, rod.nNodes * 3));
   if (state.variant.reference) include(state.variant.reference.flat());
+  for (const obstacle of state.variant.scenario.obstacles ?? []) {
+    const reach = obstacle.radius + obstacle.length / 2;
+    for (const axis of [0, 1, 2]) for (const sign of [-1, 1]) {
+      const corner = [...obstacle.center];
+      corner[axis] += sign * reach;
+      include(corner);
+    }
+  }
   return box;
 }
 
@@ -248,7 +258,8 @@ function buildGrid() {
   grid.rotation.x = Math.PI / 2;
   grid.position.set(Math.round(center.x / cell) * cell, Math.round(center.y / cell) * cell, box.min.z - 0.05 * extent);
   content.add(grid);
-  $("scale").textContent = `grid ${si(cell, "m")}`;
+  $("scale").textContent = `grid ${si(cell, "m")}` +
+    (state.thickened ? ` · thin rods drawn ${si(2 * state.thickened, "m")} thick` : "");
   invalidate();
 }
 
@@ -381,6 +392,22 @@ function buildVariantControls(variant) {
   );
 }
 
+/** Largest dimension of the scene as it starts: every rod's first frame, and obstacles. */
+function startingExtent(variant, runs, loaded) {
+  const box = new THREE.Box3();
+  const point = new THREE.Vector3();
+  runs.forEach((run, i) => {
+    const firstFrame = run.trajectory.n_nodes.reduce((sum, n) => sum + n, 0) * 3;
+    for (let k = 0; k < firstFrame; k += 3) box.expandByPoint(point.set(loaded[i][k], loaded[i][k + 1], loaded[i][k + 2]));
+  });
+  for (const obstacle of variant.scenario.obstacles ?? []) {
+    box.expandByPoint(point.set(...obstacle.center).addScalar(obstacle.radius));
+    box.expandByPoint(point.set(...obstacle.center).addScalar(-obstacle.radius));
+  }
+  const size = box.getSize(new THREE.Vector3());
+  return Math.max(size.x, size.y, size.z) || 1;
+}
+
 async function showVariant(variant) {
   state.variant = variant;
   state.playing = false;
@@ -393,10 +420,16 @@ async function showVariant(variant) {
   content.clear();
   state.entries = [];
 
-  const radii = variant.scenario.rods.map((rod) => rod.radius);
   const runs = variant.runs.filter((run) => run.trajectory);
   const loaded = await Promise.all(runs.map((run) => loadTrajectory(run.trajectory.file)));
   if (state.variant !== variant) return; // another variant was picked while this one loaded
+
+  // Rods thinner than about a four-hundredth of the scene would vanish on screen, so
+  // they are drawn at least that thick, and the scale note says so.
+  const extent = startingExtent(variant, runs, loaded);
+  const thinnest = extent / 400;
+  const radii = variant.scenario.rods.map((rod) => Math.max(rod.radius, thinnest));
+  state.thickened = variant.scenario.rods.some((rod) => rod.radius < thinnest) ? thinnest : 0;
 
   runs.forEach((run, order) => {
     const { times, n_nodes: nNodes } = run.trajectory;
@@ -419,6 +452,17 @@ async function showVariant(variant) {
       speeds: nodeSpeeds(rods, times, variant.rod_lengths),
     });
   });
+
+  // Obstacles, drawn solid but quiet: the rods are what matter.
+  for (const obstacle of variant.scenario.obstacles ?? []) {
+    const geometry = new THREE.CylinderGeometry(obstacle.radius, obstacle.radius, obstacle.length, 64);
+    const material = new THREE.MeshStandardMaterial({ color: cssColor("--axis"), roughness: 0.8, transparent: true, opacity: 0.75 });
+    const mesh = new THREE.Mesh(geometry, material);
+    const axis = new THREE.Vector3(...obstacle.axis).normalize();
+    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), axis); // three.js cylinders run along y
+    mesh.position.set(...obstacle.center);
+    content.add(mesh);
+  }
 
   state.reference = null;
   if (variant.reference) {
@@ -531,7 +575,9 @@ function layoutChanged() {
 function buildMetrics() {
   const runs = state.variant.runs;
   const names = [...new Set(runs.flatMap((run) => Object.keys(run.metrics)))];
-  const observed = [...new Set(runs.flatMap((run) => Object.keys(run.observations ?? {})))];
+  // An observation that applies to no run here (penetration, with nothing to touch) is left out.
+  const observed = [...new Set(runs.flatMap((run) => Object.entries(run.observations ?? {})
+    .filter(([, value]) => value != null).map(([name]) => name)))];
   const rows = [
     ...names.map((name) => ({ label: name.replaceAll("_", " "), value: (run) => run.metrics[name], bar: true })),
     ...(observed.length ? [{ section: "Observed on every run" }] : []),
@@ -596,6 +642,10 @@ function buildScenario() {
   const g = Math.hypot(...scenario.gravity);
   items.push(
     ["Gravity", g ? `${formatNumber(g)} m/s² along ${direction(scenario.gravity)}` : "none"],
+    ...(scenario.obstacles ?? []).map((o, i) => [
+      `Cylinder${scenario.obstacles.length > 1 ? ` ${i + 1}` : ""}`,
+      `radius ${si(o.radius, "m")}, friction ${formatNumber(o.friction)}`,
+    ]),
     ["Duration", `${formatNumber(scenario.duration)} s`],
     ["Judged on", scenario.quasi_static ? "final equilibrium; solvers may add damping to reach it" : "the motion itself; no added damping"],
   );
