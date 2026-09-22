@@ -1,6 +1,6 @@
 """A benchmark suite for rope, cable, and Cosserat rod simulation."""
 
-from cosseratbench.experiment import Experiment, Metric, Result, run
+from cosseratbench.experiment import Experiment, Metric, Parameter, Result, run
 from cosseratbench.scenario import (
     End,
     EndCondition,
@@ -10,17 +10,19 @@ from cosseratbench.scenario import (
     Rod,
     Scenario,
 )
-from cosseratbench.solver import Capability, Solver
+from cosseratbench.solver import Capability, Diverged, Solver
 from cosseratbench.trajectory import Trajectory
 
 __all__ = [
     "Capability",
+    "Diverged",
     "End",
     "EndCondition",
     "Experiment",
     "Material",
     "Metric",
     "Motion",
+    "Parameter",
     "PointLoad",
     "Result",
     "Rod",

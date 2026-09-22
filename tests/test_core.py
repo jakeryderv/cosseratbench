@@ -14,8 +14,11 @@ from cosseratbench import (
     Trajectory,
     registry,
     run,
+    variations,
 )
-from cosseratbench.experiments.catenary import LENGTH, SPAN, catenary, reference_curve
+from cosseratbench.experiment import Parameter
+from cosseratbench.experiments.catenary import LENGTH, catenary, reference_curve
+from cosseratbench.solver import Diverged
 
 RUBBER = Material(youngs_modulus=1e6, shear_modulus=1e6 / 3.0, density=1000.0)
 STRAIGHT = Rod(centerline=((0.0, 0.0, 0.0), (2.0, 0.0, 0.0)), radius=0.01, material=RUBBER)
@@ -41,7 +44,7 @@ def experiment(**overrides) -> Experiment:
     fields = {
         "name": "still",
         "description": "",
-        "scenario": Scenario(rods=(STRAIGHT,), duration=1.0),
+        "build": lambda: Scenario(rods=(STRAIGHT,), duration=1.0),
         "metrics": {"tip_x": lambda scenario, trajectory: trajectory.positions[0][-1, -1, 0]},
     }
     return Experiment(**(fields | overrides))
@@ -124,16 +127,16 @@ def test_catenary_start_shape_has_the_right_length_and_span():
     rod = catenary.scenario.rods[0]
     assert rod.length == pytest.approx(LENGTH, rel=1e-5)
     assert rod.centerline[0] == pytest.approx((0.0, 0.0, 0.0))
-    assert rod.centerline[-1] == pytest.approx((SPAN, 0.0, 0.0), abs=1e-12)
+    assert rod.centerline[-1] == pytest.approx((0.8, 0.0, 0.0), abs=1e-12)
 
 
 def test_elastic_catenary_spans_the_supports_and_tends_to_the_inextensible_one():
     rod = catenary.scenario.rods[0]
-    curve = reference_curve(rod, 9.81)
-    np.testing.assert_allclose(curve[[0, -1]], [(0, 0, 0), (SPAN, 0, 0)], atol=1e-9)
+    curve = reference_curve(rod, 9.81, 0.8)
+    np.testing.assert_allclose(curve[[0, -1]], [(0, 0, 0), (0.8, 0, 0)], atol=1e-9)
 
     stiff = Rod(rod.centerline, rod.radius, Material(1e12, 1e12 / 3.0, 1000.0))
-    inextensible = reference_curve(stiff, 9.81)
+    inextensible = reference_curve(stiff, 9.81, 0.8)
     arc_length = np.linalg.norm(np.diff(inextensible, axis=0), axis=1).sum()
     assert arc_length == pytest.approx(stiff.length, rel=1e-6)
     assert curve[:, 2].min() < inextensible[:, 2].min()  # stretch deepens the sag
@@ -192,3 +195,67 @@ def test_builtins_are_registered_through_entry_points():
     assert registry.load_experiment("catenary") is catenary
     with pytest.raises(KeyError):
         registry.load_solver("no-such-solver")
+
+
+def test_parameters_build_the_scenario_and_default_to_the_ordinary_case():
+    def build(length):
+        return Scenario(rods=(Rod(((0, 0, 0), (length, 0, 0)), 0.01, RUBBER),), duration=1.0)
+
+    sized = experiment(build=build, parameters=(Parameter("length", 2.0, (1.0, 2.0, 3.0)),))
+    assert sized.scenario.rods[0].length == pytest.approx(2.0)
+    assert sized.scenario_for(length=3.0).rods[0].length == pytest.approx(3.0)
+    with pytest.raises(KeyError):
+        sized.scenario_for(width=1.0)
+    with pytest.raises(ValueError):
+        Parameter("length", 2.5, (1.0, 2.0))  # the default must be swept
+
+
+def test_outcomes_name_what_happened():
+    assert run(experiment(), FakeSolver(), n_elements=4).outcome == "completed"
+    assert (
+        run(experiment(requires=frozenset({Capability.STRETCH})), FakeSolver()).outcome
+        == "unsupported"
+    )
+    diverged = run(experiment(), FakeSolver(stretch=50.0), n_elements=4, n_frames=5)
+    assert diverged.outcome == "diverged"
+    assert diverged.diverged_at == pytest.approx(1.0)  # the last frame, where it broke
+
+
+def test_a_solver_can_say_when_it_diverged():
+    class Breaks(FakeSolver):
+        def run(self, scenario, *, n_elements, n_frames):
+            if n_frames > 2:  # not the warm-up
+                raise Diverged("broke", time=0.25)
+            return super().run(scenario, n_elements=n_elements, n_frames=n_frames)
+
+    result = run(experiment(), Breaks(), n_elements=4)
+    assert (result.outcome, result.failure, result.diverged_at) == ("diverged", "broke", 0.25)
+
+
+def test_every_completed_run_observes_the_largest_strain():
+    result = run(experiment(), FakeSolver(stretch=1.5), n_elements=4, n_frames=3)
+    assert result.observations["max_strain"] == pytest.approx(0.5)
+
+
+def test_variants_change_one_thing_at_a_time():
+    sized = experiment(parameters=(Parameter("length", 2.0, (1.0, 2.0, 3.0)),), n_elements=10)
+    keys = [v.key for v in variations.variants(sized, ["length", "resolution", "time_step_scale"])]
+    assert keys == [
+        "default",
+        "length=1",
+        "length=3",
+        "resolution=5",
+        "resolution=20",
+        "time_step_scale=2",
+        "time_step_scale=4",
+    ]
+    assert len(variations.variants(sized, ["all"])) == len(keys)
+    with pytest.raises(KeyError):
+        variations.variants(sized, ["width"])
+
+
+def test_solvers_are_built_with_options():
+    solver = registry.load_solver("pyelastica", time_step_scale=2.0)
+    assert solver.time_step_safety == pytest.approx(1.0)
+    with pytest.raises(ValueError):
+        registry.load_solver("pyelastica", bogus=1.0)

@@ -13,5 +13,5 @@ replaced, the old record stays and says what replaced it.
 | [0005](0005-rods-can-start-stretched.md) | Rods can start stretched | Accepted |
 | [0006](0006-driven-ends.md) | Clamped ends can be driven | Accepted |
 | [0007](0007-validation-and-exploration.md) | Validation and exploration experiments | Accepted |
-| [0008](0008-solver-options-and-variations.md) | Variations sweep physics and solver options separately | Accepted, not built |
-| [0009](0009-kinds-of-outcome.md) | Outcomes say what kind of thing happened | Accepted, not built |
+| [0008](0008-solver-options-and-variations.md) | Variations sweep physics and solver options separately | Accepted |
+| [0009](0009-kinds-of-outcome.md) | Outcomes say what kind of thing happened | Accepted |

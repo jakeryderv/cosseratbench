@@ -10,18 +10,20 @@ unless stated.
 
 **Twisting a cable clamped at both ends diverges.** *Numerical breakdown.*
 Once the cable holds about 5 rad of twist, the simulation blows up, whichever end
-is driven and whether or not the weld holding the far end rotates. Twisting faster
-brings it sooner: at the twist experiment's rate it diverges within 0.05 s. The
-same cable twisted by a torque at a free end is fine to 12 rad, so the cable model
-is not the cause; the weld constraints that clamp its ends are. Softer welds
+is driven and whether or not the weld holding the far end rotates; in the twist
+experiment that is about 2 s into the ramp, at every tension and resolution
+swept. The same cable twisted by a torque at a free end is fine to 12 rad, so the
+cable model is not the cause; the weld constraints that clamp its ends are.
+(An earlier note said twisting fast made it fail within 0.05 s. That time was
+read after MuJoCo had reset its clock on diverging; it was the same 5 rad limit.) Softer welds
 survive only by letting the clamped end turn by 20% to over 100% of the twist,
 so they do not clamp. MuJoCo can hold a far end only with such a constraint, so
 it cannot run the twist experiment or, presumably, any experiment that twists a
 clamped cable several turns.
 
 **Other ways a held end breaks it.** *Numerical breakdown.* A sideways load on a
-clamped end diverges within 0.05 s. Rotating a clamp in bending while both ends
-are held also diverges; that demand is impossible for an inextensible cable, which
+clamped end diverges. Rotating a clamp in bending while both ends are held also
+diverges; that demand is impossible for an inextensible cable, which
 cannot shorten its chord to bend, so it may also count as not representable.
 
 **Held ends drift unless constraints are stiff.** *Solver setting.* At MuJoCo's
@@ -29,8 +31,17 @@ default constraint softness, a pinned cable end drifted 3.4 mm under the cable's
 weight; making the constraint as stiff as the step allows brought it to 1.8 µm.
 
 **The cable cannot stretch.** *Not representable.* On the catenary this costs
-1.2% of the sag, which stretch deepens. It also cannot show a cable bouncing along
-its length when released.
+1.2% of the sag, which stretch deepens; 10% when the cable is ten times softer,
+and 7.4% when it is nearly taut (span 0.95 m for a 1 m cable), where sag depends
+most on stretch. It also cannot
+show a cable bouncing along its length when released.
+
+**It tolerates larger time steps than its adapter estimates.** *Solver behaviour.*
+At twice the adapter's time step (`time_step_scale=2`) MuJoCo still gives the same
+answers on the catenary, cantilever and pendulum, in half the time; at four times
+it diverges. PyElastica diverges at twice on every experiment, within the first
+frame. The adapters' shared estimate of the
+stable step is therefore conservative for MuJoCo's `implicitfast` integrator.
 
 **Stiff cables are slow.** *Cost.* The cable plugin integrates its stiffness
 explicitly, so the time step shrinks with stiffness and element size. A rigid-rod
@@ -45,7 +56,8 @@ finished. The adapter checks MuJoCo's warning counter after every frame.
 
 **Twisted rods buckle about 1% early.** *Open question.* The twist experiment's
 critical twist converges with resolution (0.978, 0.989, 0.991 of Greenhill's at
-25, 50 and 100 elements) toward about 0.99. The measurement is good to about
+25, 50 and 100 elements) toward about 0.99, and is 0.989 and 0.983 at a tenth
+and three times the usual tension. The measurement is good to about
 ±0.5%, and the physics Greenhill leaves out (shear, stretch) is too small to
 explain the rest.
 
@@ -61,6 +73,15 @@ friction at all.
 
 **First runs include JIT compilation.** *Cost.* Numba compilation added about 14 s
 to a first run against 0.5 s warm. The runner times runs after a short warm-up.
+
+## References
+
+**The catenary's reference ignores bending, which matters on slack spans.**
+*Reference limit.* At a 0.6 m span both solvers sit well off the elastic
+catenary (sag error 0.77% for PyElastica, 1.3% for MuJoCo, against 0.014% and
+1.2% at 0.8 m). Halving the cable's radius, which cuts bending stiffness four
+times relative to weight, drops PyElastica's error to 0.24% at 0.6 m and leaves
+0.8 m unchanged, so the gap is the reference's, not the solvers'.
 
 ## Both solvers, and measuring them
 
@@ -82,6 +103,13 @@ adapters add in quasi-static scenarios slows every motion, including rigid ones:
 a clamp turned 90° drags the rod behind it for seconds. Spinning a rod against it
 pushes the rod sideways, so a rod twisted steadily left straight at 1.21 times the
 critical twist. Holding the twist steady removes both effects.
+
+**A buckled rod can come back.** *Measurement pitfall.* Without self-contact a
+buckled rod can loop, pass through itself and straighten again, shedding a turn
+of twist. Growth measured on frames after that is meaningless; at three times the
+usual tension it made the twist experiment read 5.1% where the rods' actual
+growth gives 1.7%. Growth is now measured only until a rod first leaves the
+exponential range.
 
 **Timing zero crossings is fragile.** *Measurement pitfall.* A 0.65 mm vibration
 riding on a 1.25 cm swing gave extra crossings and a 52% period error. Fitting a

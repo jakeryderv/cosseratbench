@@ -45,12 +45,17 @@ uv sync --all-extras        # from a clone; installs both solver backends
 uv run cosseratbench list
 uv run cosseratbench run    # every experiment x every solver, saved under results/
 uv run cosseratbench run catenary --solver pyelastica --n-elements 100
+uv run cosseratbench run catenary --vary span --vary time_step_scale
+uv run cosseratbench run --vary all   # every parameter and solver option, one at a time
 uv run cosseratbench view   # open the results in a browser
 ```
 
-Each run writes `results/<experiment>/<solver>/result.json` (metrics, wall time)
-and `trajectory.npz` (node positions over time), next to an `experiment.json`
-describing the problem. Wall time excludes a short warm-up run, so one-off costs
+Each run writes `results/<experiment>/<variant>/<solver>/result.json` (outcome,
+metrics, observations, wall time) and `trajectory.npz` (node positions over time),
+next to an `experiment.json` describing the problem. A variant is the ordinary
+case (`default`) or one change from it: a physical parameter the experiment
+declares, the resolution, or `time_step_scale`, which multiplies the time step
+each solver would choose. `cosseratbench list` shows what each experiment can vary. Wall time excludes a short warm-up run, so one-off costs
 such as JIT compilation do not count against a solver.
 
 ## Viewer
@@ -106,6 +111,30 @@ class MySolver:
     capabilities = frozenset({Capability.STRETCH})
 
     def run(self, scenario: Scenario, *, n_elements: int, n_frames: int) -> Trajectory: ...
+```
+
+A solver that breaks down should raise `cosseratbench.solver.Diverged`, with the
+simulated time if it knows it; the runner also catches blow-ups a solver misses.
+To take part in time step sweeps, accept a `time_step_scale` keyword in the
+constructor and multiply your own choice of step by it.
+
+An experiment builds its scenario from its parameters:
+
+```python
+from cosseratbench import Experiment, Parameter
+
+
+def build(youngs_modulus: float) -> Scenario: ...
+
+
+my_experiment = Experiment(
+    name="myexperiment",
+    description="One line for listings.",
+    build=build,
+    parameters=(Parameter("youngs_modulus", default=1e6, values=(1e5, 1e6, 1e7), unit="Pa"),),
+    metrics={"my_metric": my_metric},  # functions of (scenario, trajectory)
+    notes="What it explores and what to look for; the viewer shows this.",
+)
 ```
 
 The built-in solvers and experiments register the same way; see

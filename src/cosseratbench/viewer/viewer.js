@@ -142,6 +142,8 @@ const trajectories = new Map(); // file -> Promise<Float32Array>
 
 const state = {
   experiment: null,
+  variant: null, // the swept variant of the experiment on show
+  axis: null, // what the variant controls currently vary
   entries: [], // one per run that has a trajectory: { run, colorVar, rods, object, shown, speeds }
   reference: null, // { object, shown }
   mode: "overlay",
@@ -199,7 +201,7 @@ function bounds() {
     for (let k = 0; k < array.length; k += 3) box.expandByPoint(point.set(array[k], array[k + 1], array[k + 2]));
   };
   for (const entry of state.entries) for (const rod of entry.rods) include(rod.frames);
-  if (state.experiment.reference) include(state.experiment.reference.flat());
+  if (state.variant.reference) include(state.variant.reference.flat());
   return box;
 }
 
@@ -310,16 +312,80 @@ function nodeSpeeds(rods, times, lengths) {
   return speeds;
 }
 
-async function select(experiment) {
-  state.experiment = experiment;
-  state.playing = false;
-  for (const button of $("experiments").children) {
-    button.setAttribute("aria-current", String(button.dataset.name === experiment.name));
+function select(experiment, key) {
+  if (state.experiment !== experiment) {
+    state.experiment = experiment;
+    for (const button of $("experiments").children) {
+      button.setAttribute("aria-current", String(button.dataset.name === experiment.name));
+    }
+    $("title").textContent = experiment.name;
+    $("description").textContent = experiment.description;
+    $("notes").textContent = experiment.notes;
+    $("notes").hidden = !experiment.notes;
   }
-  $("title").textContent = experiment.name;
-  $("description").textContent = experiment.description;
+  const variant = experiment.variants.find((v) => v.key === key) ?? experiment.variants[0];
+  buildVariantControls(variant);
+  if (state.variant !== variant) showVariant(variant);
+}
 
-  // Replace the previous experiment's objects.
+/** Every name the experiment was swept over, with its values and the variant for each. */
+function axes(experiment) {
+  const ordinary = experiment.variants.find((v) => !Object.keys(v.varied).length) ?? experiment.variants[0];
+  const found = new Map();
+  for (const variant of experiment.variants) {
+    for (const [name, value] of Object.entries(variant.varied)) {
+      if (!found.has(name)) found.set(name, new Map([[experiment.defaults[name], ordinary]]));
+      found.get(name).set(value, variant);
+    }
+  }
+  for (const [name, values] of found) found.set(name, new Map([...values].sort((a, b) => a[0] - b[0])));
+  return found;
+}
+
+function axisLabel(experiment, name) {
+  const unit = experiment.parameters.find((p) => p.name === name)?.unit;
+  return name.replaceAll("_", " ") + (unit ? ` (${unit})` : "");
+}
+
+function buildVariantControls(variant) {
+  const experiment = state.experiment;
+  const found = axes(experiment);
+  $("variants").hidden = found.size === 0;
+  if (!found.size) return;
+  const [current] = Object.keys(variant.varied);
+  const axis = current ?? state.axis ?? [...found.keys()][0];
+  state.axis = found.has(axis) ? axis : [...found.keys()][0];
+
+  const picker = el("select", { id: "vary", "aria-label": "What to vary" },
+    ...[...found.keys()].map((name) => {
+      const option = el("option", { value: name }, axisLabel(experiment, name));
+      option.selected = name === state.axis;
+      return option;
+    }));
+  picker.addEventListener("change", () => {
+    state.axis = picker.value;
+    location.hash = experiment.name; // back to the ordinary case, which every axis contains
+  });
+
+  const values = found.get(state.axis);
+  const buttons = [...values].map(([value, target]) => {
+    const isDefault = target === values.get(experiment.defaults[state.axis]);
+    const button = el("button", { type: "button", "aria-pressed": String(target === variant) },
+      formatNumber(value) + (isDefault ? " (usual)" : ""));
+    button.addEventListener("click", () => (location.hash = `${experiment.name}/${target.key}`));
+    return button;
+  });
+  $("variants").replaceChildren(
+    el("label", { class: "vary" }, "Vary ", picker),
+    el("div", { class: "segmented", role: "group", "aria-label": "Value" }, ...buttons),
+  );
+}
+
+async function showVariant(variant) {
+  state.variant = variant;
+  state.playing = false;
+
+  // Replace the previous variant's objects.
   content.traverse((object) => {
     object.geometry?.dispose();
     object.material?.dispose();
@@ -327,10 +393,10 @@ async function select(experiment) {
   content.clear();
   state.entries = [];
 
-  const radii = experiment.scenario.rods.map((rod) => rod.radius);
-  const runs = experiment.runs.filter((run) => run.trajectory);
+  const radii = variant.scenario.rods.map((rod) => rod.radius);
+  const runs = variant.runs.filter((run) => run.trajectory);
   const loaded = await Promise.all(runs.map((run) => loadTrajectory(run.trajectory.file)));
-  if (state.experiment !== experiment) return; // another experiment was picked while this one loaded
+  if (state.variant !== variant) return; // another variant was picked while this one loaded
 
   runs.forEach((run, order) => {
     const { times, n_nodes: nNodes } = run.trajectory;
@@ -350,13 +416,13 @@ async function select(experiment) {
     content.add(object);
     state.entries.push({
       run, colorVar, material, rods, object, times, shown: true,
-      speeds: nodeSpeeds(rods, times, experiment.rod_lengths),
+      speeds: nodeSpeeds(rods, times, variant.rod_lengths),
     });
   });
 
   state.reference = null;
-  if (experiment.reference) {
-    const geometry = new THREE.BufferGeometry().setFromPoints(experiment.reference.map((p) => new THREE.Vector3(...p)));
+  if (variant.reference) {
+    const geometry = new THREE.BufferGeometry().setFromPoints(variant.reference.map((p) => new THREE.Vector3(...p)));
     // Drawn over the rods: the answer is a centreline, and would otherwise sit inside their tubes.
     const material = new THREE.LineBasicMaterial({ color: cssColor("--reference"), depthTest: false });
     const object = new THREE.Line(geometry, material);
@@ -365,9 +431,9 @@ async function select(experiment) {
     state.reference = { object, shown: true };
   }
 
-  state.duration = Math.max(experiment.scenario.duration, ...state.entries.map((entry) => entry.times.at(-1)));
+  state.duration = Math.max(variant.scenario.duration, ...state.entries.map((entry) => entry.times.at(-1)));
   $("scrub").max = state.duration;
-  notify(state.entries.length ? null : "No solver produced a trajectory for this experiment.");
+  notify(state.entries.length ? null : "No solver produced a trajectory here; see why under Metrics.");
 
   buildLegend();
   buildMetrics();
@@ -463,10 +529,13 @@ function layoutChanged() {
 // ---------------------------------------------------------------- metrics table
 
 function buildMetrics() {
-  const runs = state.experiment.runs;
+  const runs = state.variant.runs;
   const names = [...new Set(runs.flatMap((run) => Object.keys(run.metrics)))];
+  const observed = [...new Set(runs.flatMap((run) => Object.keys(run.observations ?? {})))];
   const rows = [
     ...names.map((name) => ({ label: name.replaceAll("_", " "), value: (run) => run.metrics[name], bar: true })),
+    ...(observed.length ? [{ section: "Observed on every run" }] : []),
+    ...observed.map((name) => ({ label: name.replaceAll("_", " "), value: (run) => run.observations?.[name], bar: true })),
     { label: "wall time (s)", value: (run) => run.wall_time, bar: true },
     { label: "elements per rod", value: (run) => run.n_elements, bar: false },
   ];
@@ -474,6 +543,7 @@ function buildMetrics() {
   const head = el("tr", {}, el("th", { scope: "col" }, "Metric"),
     ...runs.map((run) => el("th", { scope: "col" }, swatch(seriesVar(run.solver)), run.solver)));
   const body = rows.map((row) => {
+    if (row.section) return el("tr", { class: "section" }, el("th", { scope: "rowgroup", colspan: runs.length + 1 }, row.section));
     const values = runs.map((run) => (run.trajectory || !row.bar ? row.value(run) : undefined));
     const largest = Math.max(...values.filter((v) => v != null).map(Math.abs));
     return el("tr", {}, el("th", { scope: "row" }, row.label), ...runs.map((run, i) => {
@@ -491,8 +561,13 @@ function buildMetrics() {
   $("metrics").replaceChildren(el("thead", {}, head), el("tbody", {}, ...body));
 
   $("problems").replaceChildren(...runs.flatMap((run) => {
-    if (run.missing.length) return [el("li", {}, `${run.solver} was not run: it does not model ${run.missing.join(", ")}.`)];
-    if (run.failure) return [el("li", {}, `${run.solver} failed: ${run.failure}.`)];
+    if (run.outcome === "unsupported") {
+      return [el("li", {}, `${run.solver} was not run: its model cannot represent ${run.missing.join(", ")}.`)];
+    }
+    if (run.outcome === "diverged") {
+      const when = run.diverged_at == null ? "" : ` at t = ${formatNumber(run.diverged_at)} s`;
+      return [el("li", {}, `${run.solver} diverged${when}: ${run.failure}.`)];
+    }
     return [];
   }));
 }
@@ -500,12 +575,16 @@ function buildMetrics() {
 // ---------------------------------------------------------------- scenario
 
 function buildScenario() {
-  const { scenario } = state.experiment;
+  const { scenario, rod_lengths: lengths } = state.variant;
   const items = [];
-  scenario.rods.forEach((rod, i) => {
-    const of = scenario.rods.length > 1 ? ` (rod ${i + 1})` : "";
+  // Rods that differ only in placement and motion are described once.
+  const describe = (rod, i) => JSON.stringify([rod.radius, rod.material, rod.start, rod.end, rod.loads, lengths[i]]);
+  const alike = scenario.rods.every((rod, i) => describe(rod, i) === describe(scenario.rods[0], 0));
+  const rods = alike ? scenario.rods.slice(0, 1) : scenario.rods;
+  rods.forEach((rod, i) => {
+    const of = alike ? (scenario.rods.length > 1 ? ` (each of ${scenario.rods.length} rods)` : "") : ` (rod ${i + 1})`;
     items.push(
-      [`Length${of}`, si(state.experiment.rod_lengths[i], "m")],
+      [`Length${of}`, si(lengths[i], "m")],
       [`Radius${of}`, si(rod.radius, "m")],
       [`Young's modulus${of}`, si(rod.material.youngs_modulus, "Pa")],
       [`Shear modulus${of}`, si(rod.material.shear_modulus, "Pa")],
@@ -691,8 +770,8 @@ new ResizeObserver(() => chart.draw()).observe($("chart"));
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", recolor);
 
 function route() {
-  const name = decodeURIComponent(location.hash.slice(1));
-  select(manifest.experiments.find((experiment) => experiment.name === name) ?? manifest.experiments[0]);
+  const [name, key] = decodeURIComponent(location.hash.slice(1)).split("/");
+  select(manifest.experiments.find((experiment) => experiment.name === name) ?? manifest.experiments[0], key);
 }
 addEventListener("hashchange", route);
 route();

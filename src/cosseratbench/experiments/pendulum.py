@@ -23,13 +23,13 @@ import functools
 
 import numpy as np
 
-from cosseratbench.experiment import Experiment
+from cosseratbench.experiment import Experiment, Parameter
 from cosseratbench.scenario import EndCondition, Material, Rod, Scenario
 from cosseratbench.trajectory import Trajectory
 
 LENGTH = 1.0
 RADIUS = 0.002
-MATERIAL = Material(youngs_modulus=1e7, shear_modulus=1e7 / 3.0, density=1000.0)
+DENSITY = 1000.0
 GRAVITY = 9.81
 # Of the free end. The reference is linear; the real swing slows with amplitude,
 # by 0.051 A^2 (A in metres, measured with both solvers), so 2e-5 at this amplitude.
@@ -113,12 +113,16 @@ def reference_period(scenario: Scenario) -> float:
     return 2.0 * np.pi / frequency
 
 
-def _initial_state() -> tuple[np.ndarray, np.ndarray]:
+def _material(youngs_modulus: float) -> Material:
+    return Material(youngs_modulus, youngs_modulus / 3.0, DENSITY)
+
+
+def _initial_state(material: Material) -> tuple[np.ndarray, np.ndarray]:
     """The cable hanging from the origin in equilibrium, displaced into its first mode:
     the positions of material points, and their unstretched distances from the pin."""
-    _, displacement, slope = first_mode(LENGTH, RADIUS, MATERIAL, GRAVITY)
+    _, displacement, slope = first_mode(LENGTH, RADIUS, material, GRAVITY)
     s = np.linspace(0.0, LENGTH, len(displacement))
-    strain = static_strain(s, LENGTH, MATERIAL, GRAVITY)
+    strain = static_strain(s, LENGTH, material, GRAVITY)
     # The mode runs from the free end up; the rod runs from the pin down, so d/ds = -d/dz.
     x = AMPLITUDE * displacement[::-1]
     dx_ds = -AMPLITUDE * slope[::-1]
@@ -174,24 +178,46 @@ def amplitude_change(scenario: Scenario, trajectory: Trajectory) -> float:
     return _fit(t[last], x[last], omega)[0] / _fit(t[first], x[first], omega)[0] - 1.0
 
 
-_centerline, _rest_arc_length = _initial_state()
-
-pendulum = Experiment(
-    name="pendulum",
-    description="Cable hanging from a pin, swinging in its first mode, against linear vibration theory.",
-    scenario=Scenario(
+def build(youngs_modulus: float) -> Scenario:
+    material = _material(youngs_modulus)
+    centerline, rest_arc_length = _initial_state(material)
+    return Scenario(
         rods=(
             Rod(
-                centerline=tuple(map(tuple, _centerline)),
-                rest_arc_length=tuple(_rest_arc_length),
+                centerline=tuple(map(tuple, centerline)),
+                rest_arc_length=tuple(rest_arc_length),
                 radius=RADIUS,
-                material=MATERIAL,
+                material=material,
                 normal=(0.0, 1.0, 0.0),
                 start=EndCondition.PINNED,
             ),
         ),
         duration=5.0,
         gravity=(0.0, 0.0, -GRAVITY),
+    )
+
+
+pendulum = Experiment(
+    name="pendulum",
+    description="Cable hanging from a pin, swinging in its first mode, against linear vibration theory.",
+    build=build,
+    parameters=(
+        Parameter(
+            "youngs_modulus",
+            default=1e7,
+            values=(1e6, 1e7, 1e8),
+            unit="Pa",
+            description=(
+                "Stiffer cables swing faster as bending takes a larger share, and cost "
+                "more to simulate; the reference accounts for both bending and stretch."
+            ),
+        ),
     ),
     metrics={"period_error": period_error, "amplitude_change": amplitude_change},
+    notes=(
+        "A cable hanging from a pin swings in its first mode with no damping, so the "
+        "motion itself is the result. Watch the period against theory and whether the "
+        "swing keeps its size: a solver that loses or gains energy shows it as a "
+        "change in amplitude."
+    ),
 )

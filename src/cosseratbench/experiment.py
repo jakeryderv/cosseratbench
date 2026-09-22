@@ -1,4 +1,4 @@
-"""An experiment pairs a scenario with the metrics that judge a solver's trajectory."""
+"""An experiment builds a scenario from its parameters and judges a solver's trajectory."""
 
 from __future__ import annotations
 
@@ -22,29 +22,88 @@ Reference = Callable[[Scenario], np.ndarray]
 
 
 @dataclass(frozen=True)
+class Parameter:
+    """A physical quantity an experiment can be run at, from its ordinary value
+    toward harder ones."""
+
+    name: str
+    default: float
+    values: tuple[float, ...]  # swept, in order; includes the default
+    unit: str = ""
+    description: str = ""
+
+    def __post_init__(self) -> None:
+        if self.default not in self.values:
+            raise ValueError(f"{self.name}: the default must be one of the swept values")
+
+
+@dataclass(frozen=True)
 class Experiment:
+    """A scenario, built from parameter values, and the metrics that judge it.
+
+    ``build`` takes one keyword argument per parameter. ``notes`` says what the
+    experiment explores and what to look for; the viewer shows it.
+    """
+
     name: str
     description: str
-    scenario: Scenario
+    build: Callable[..., Scenario]
     metrics: Mapping[str, Metric]
+    parameters: tuple[Parameter, ...] = ()
     requires: frozenset[Capability] = frozenset()
     n_elements: int = 50  # default resolution
     n_frames: int = 101  # frames recorded, evenly spaced from start to end
     reference: Reference | None = None
+    notes: str = ""
 
-    def save(self, directory: Path) -> None:
-        """Write everything a reader of the results needs to interpret them without this code."""
+    def values(self, **changes: float) -> dict[str, float]:
+        """Every parameter's value: its default, unless changed."""
+        known = {p.name for p in self.parameters}
+        if unknown := set(changes) - known:
+            raise KeyError(
+                f"{self.name} has no parameter {sorted(unknown)}; it has {sorted(known)}"
+            )
+        return {p.name: float(changes.get(p.name, p.default)) for p in self.parameters}
+
+    def scenario_for(self, **changes: float) -> Scenario:
+        return self.build(**self.values(**changes))
+
+    @property
+    def scenario(self) -> Scenario:
+        """The ordinary case: every parameter at its default."""
+        return self.scenario_for()
+
+    def save(
+        self,
+        directory: Path,
+        changes: Mapping[str, float] | None = None,
+        varied: Mapping[str, float] | None = None,
+        defaults: Mapping[str, float] | None = None,
+    ) -> None:
+        """Write everything a reader of one variant's results needs to interpret them
+        without this code: the scenario at ``changes``, and what the variant varies
+        (``varied``) from the ordinary case (``defaults``)."""
         directory.mkdir(parents=True, exist_ok=True)
-        reference = None if self.reference is None else self.reference(self.scenario).tolist()
+        changes = dict(changes or {})
+        scenario = self.scenario_for(**changes)
+        reference = None if self.reference is None else self.reference(scenario).tolist()
         summary = {
             "name": self.name,
             "description": self.description,
-            "scenario": asdict(self.scenario),
-            "rod_lengths": [rod.length for rod in self.scenario.rods],
+            "notes": self.notes,
+            "parameters": [asdict(p) for p in self.parameters],
+            "values": self.values(**changes),
+            "varied": dict(varied or {}),
+            "defaults": dict(defaults or {}),
+            "scenario": asdict(scenario),
+            "rod_lengths": [rod.length for rod in scenario.rods],
             "reference": reference,
         }
         text = json.dumps(summary, default=lambda enum: enum.value)
         (directory / "experiment.json").write_text(text + "\n")
+
+
+COMPLETED, UNSUPPORTED, DIVERGED = "completed", "unsupported", "diverged"
 
 
 @dataclass(frozen=True)
@@ -52,12 +111,22 @@ class Result:
     experiment: str
     solver: str
     n_elements: int
+    values: Mapping[str, float] = field(default_factory=dict)  # the experiment's parameters
+    options: Mapping[str, float] = field(default_factory=dict)  # the solver's, as run
     # Capabilities the experiment requires and the solver lacks; if any, it was not run.
     missing: tuple[str, ...] = ()
-    failure: str | None = None  # why the run produced no usable trajectory
+    failure: str | None = None  # how the run broke down numerically
+    diverged_at: float | None = None  # s, when that was first seen, if known
     wall_time: float | None = None  # s
     metrics: Mapping[str, float] = field(default_factory=dict)
+    observations: Mapping[str, float] = field(default_factory=dict)
     trajectory: Trajectory | None = None
+
+    @property
+    def outcome(self) -> str:
+        if self.missing:
+            return UNSUPPORTED
+        return DIVERGED if self.failure else COMPLETED
 
     @property
     def supported(self) -> bool:
@@ -65,15 +134,24 @@ class Result:
 
     def save(self, directory: Path) -> None:
         directory.mkdir(parents=True, exist_ok=True)
+
+        def finite(numbers: Mapping[str, float]) -> dict[str, float | None]:
+            # JSON has no NaN or infinity; a value that could not be computed is null.
+            return {k: v if np.isfinite(v) else None for k, v in numbers.items()}
+
         summary = {
             "experiment": self.experiment,
             "solver": self.solver,
+            "outcome": self.outcome,
             "n_elements": self.n_elements,
+            "values": dict(self.values),
+            "options": dict(self.options),
             "missing": list(self.missing),
             "failure": self.failure,
+            "diverged_at": self.diverged_at,
             "wall_time": self.wall_time,
-            # JSON has no NaN or infinity; a metric that could not be computed is null.
-            "metrics": {k: v if np.isfinite(v) else None for k, v in self.metrics.items()},
+            "metrics": finite(self.metrics),
+            "observations": finite(self.observations),
         }
         (directory / "result.json").write_text(
             json.dumps(summary, indent=2, allow_nan=False) + "\n"
@@ -82,57 +160,85 @@ class Result:
             self.trajectory.save(directory / "trajectory.npz")
 
 
-def _divergence(scenario: Scenario, trajectory: Trajectory) -> str | None:
+def _divergence(trajectory: Trajectory) -> tuple[str, float] | None:
     """A solver can go unstable without producing NaNs or raising, so judge the
-    trajectory itself: no real rod here doubles the length of one of its segments."""
+    trajectory itself: no real rod here doubles the length of one of its segments.
+    Returns what gave it away, and the time of the first frame that did."""
     for index, positions in enumerate(trajectory.positions):
-        if not np.isfinite(positions).all():
-            return f"rod {index} has non-finite positions"
+        finite = np.isfinite(positions).all(axis=(1, 2))
         segments = np.linalg.norm(np.diff(positions, axis=1), axis=2)
-        stretch = float((segments / segments[0]).max())
-        if stretch > 2.0:
-            return f"rod {index} has a segment stretched {stretch:.3g}x"
+        with np.errstate(invalid="ignore"):
+            stretch = (segments / segments[0]).max(axis=1)
+        broken = ~finite | ~(stretch <= 2.0)
+        if broken.any():
+            frame = int(np.argmax(broken))
+            what = (
+                "non-finite positions"
+                if not finite[frame]
+                else f"a segment stretched {stretch[frame]:.3g}x"
+            )
+            return f"rod {index} has {what}", float(trajectory.times[frame])
     return None
+
+
+def max_strain(scenario: Scenario, trajectory: Trajectory) -> float:
+    """Largest stretch or compression of any segment at any time, relative to rest."""
+    worst = 0.0
+    for rod, positions in zip(scenario.rods, trajectory.positions):
+        rest = rod.length / (positions.shape[1] - 1)
+        segments = np.linalg.norm(np.diff(positions, axis=1), axis=2)
+        worst = max(worst, float(np.abs(segments / rest - 1.0).max()))
+    return worst
+
+
+# Observed on every completed run, whatever the experiment.
+OBSERVATIONS: Mapping[str, Metric] = {"max_strain": max_strain}
 
 
 def run(
     experiment: Experiment,
     solver: Solver,
     *,
+    values: Mapping[str, float] | None = None,
+    options: Mapping[str, float] | None = None,
     n_elements: int | None = None,
     n_frames: int | None = None,
 ) -> Result:
+    """Run ``solver`` on one variant of ``experiment``: parameters at ``values`` (the
+    rest at their defaults). ``options`` records how the solver was configured."""
+    values = experiment.values(**(values or {}))
+    scenario = experiment.build(**values)
     n_elements = n_elements or experiment.n_elements
     n_frames = n_frames or experiment.n_frames
+    identity = {
+        "experiment": experiment.name,
+        "solver": solver.name,
+        "n_elements": n_elements,
+        "values": values,
+        "options": dict(options or {}),
+    }
     missing = experiment.requires - solver.capabilities
     if missing:
-        names = tuple(sorted(c.value for c in missing))
-        return Result(experiment.name, solver.name, n_elements, missing=names)
+        return Result(**identity, missing=tuple(sorted(c.value for c in missing)))
 
     # A few steps of the same problem first, so that one-off costs (JIT compilation,
     # library loading) stay out of the timing.
-    warm_up = replace(experiment.scenario, duration=experiment.scenario.duration * 1e-3)
+    warm_up = replace(scenario, duration=scenario.duration * 1e-3)
     try:
         solver.run(warm_up, n_elements=n_elements, n_frames=2)
         started = time.perf_counter()
-        trajectory = solver.run(experiment.scenario, n_elements=n_elements, n_frames=n_frames)
-        failure = _divergence(experiment.scenario, trajectory)
+        trajectory = solver.run(scenario, n_elements=n_elements, n_frames=n_frames)
     except FloatingPointError as error:
-        return Result(experiment.name, solver.name, n_elements, failure=str(error))
+        return Result(**identity, failure=str(error), diverged_at=getattr(error, "time", None))
     wall_time = time.perf_counter() - started
-    if failure:
-        return Result(
-            experiment.name, solver.name, n_elements, failure=failure, wall_time=wall_time
-        )
+    if divergence := _divergence(trajectory):
+        failure, when = divergence
+        return Result(**identity, failure=failure, diverged_at=when, wall_time=wall_time)
 
-    metrics = {
-        name: float(m(experiment.scenario, trajectory)) for name, m in experiment.metrics.items()
-    }
     return Result(
-        experiment.name,
-        solver.name,
-        n_elements,
+        **identity,
         wall_time=wall_time,
-        metrics=metrics,
+        metrics={name: float(m(scenario, trajectory)) for name, m in experiment.metrics.items()},
+        observations={name: float(o(scenario, trajectory)) for name, o in OBSERVATIONS.items()},
         trajectory=trajectory,
     )

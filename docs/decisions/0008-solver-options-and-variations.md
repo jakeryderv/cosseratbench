@@ -1,6 +1,6 @@
 # 0008: Variations sweep physics and solver options separately
 
-**Status:** Accepted, not yet built
+**Status:** Accepted
 
 ## Context
 
@@ -30,3 +30,8 @@ and the viewer is static ([0004](0004-static-viewer.md)).
   option values, not only by experiment and solver.
 - Sweeps multiply run time; choosing a small set of values per parameter is part
   of designing an experiment.
+- As built, variants change one thing at a time from the ordinary case, which
+  keeps runs proportional to the values swept and each difference attributable;
+  interactions between parameters are not explored. The solver options are
+  resolution and `time_step_scale`, a multiplier on each adapter's own choice of
+  time step.

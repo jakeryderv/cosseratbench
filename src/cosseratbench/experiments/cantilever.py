@@ -37,10 +37,8 @@ def tip_deflection_error(scenario: Scenario, trajectory: Trajectory) -> float:
     return float(abs(deflection - reference) / reference)
 
 
-cantilever = Experiment(
-    name="cantilever",
-    description="Clamped beam under a small tip load, against Euler-Bernoulli beam theory.",
-    scenario=Scenario(
+def build() -> Scenario:
+    return Scenario(
         rods=(
             Rod(
                 centerline=((0.0, 0.0, 0.0), (LENGTH, 0.0, 0.0)),
@@ -52,11 +50,23 @@ cantilever = Experiment(
         ),
         duration=10.0,
         quasi_static=True,
-    ),
+    )
+
+
+cantilever = Experiment(
+    name="cantilever",
+    description="Clamped beam under a small tip load, against Euler-Bernoulli beam theory.",
+    build=build,
     reference=reference_curve,
     metrics={
         "tip_deflection_error": tip_deflection_error,
         "settling_residual": settling_residual,
     },
     n_elements=20,
+    notes=(
+        "A beam clamped at one end bends under a small weight at the other. It "
+        "isolates bending stiffness. Both solvers hold the clamped element rigid, so "
+        "their error halves only as the element count doubles: vary the resolution "
+        "to see it."
+    ),
 )
