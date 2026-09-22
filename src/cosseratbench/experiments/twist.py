@@ -102,16 +102,27 @@ def _sideways(rod: Rod, positions: np.ndarray) -> np.ndarray:
 
 def growth_rates(scenario: Scenario, trajectory: Trajectory) -> np.ndarray:
     """Exponential growth rate of each rod's sideways distance while held, in 1/s;
-    NaN where too few frames fall where growth is still exponential."""
+    NaN where too few frames show growth that is still exponential.
+
+    Only frames before the rod first strays LINEAR from its axis count: a rod that
+    has buckled can loop, pass through itself (nothing stops it) and come back
+    near straight, and those later frames say nothing about the instability. A
+    rod that grows fast leaves too few frames once the ramp's transient has
+    settled, so it is measured from the end of the ramp instead.
+    """
     rates = []
-    held = trajectory.times >= RAMP + SETTLE
+    t = trajectory.times
     for rod, positions in zip(scenario.rods, trajectory.positions):
         sideways = _sideways(rod, positions)
-        usable = held & (sideways > 0) & (sideways < LINEAR)
+        beyond = np.flatnonzero(sideways >= LINEAR)
+        before = t < (t[beyond[0]] if len(beyond) else np.inf)
+        usable = before & (sideways > 0) & (t >= RAMP + SETTLE)
+        if usable.sum() < 5:
+            usable = before & (sideways > 0) & (t >= RAMP)
         if usable.sum() < 5:
             rates.append(np.nan)
             continue
-        rates.append(np.polyfit(trajectory.times[usable], np.log(sideways[usable]), 1)[0])
+        rates.append(np.polyfit(t[usable], np.log(sideways[usable]), 1)[0])
     return np.array(rates)
 
 

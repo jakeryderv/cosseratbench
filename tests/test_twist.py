@@ -70,3 +70,20 @@ def test_growth_is_read_only_while_small():
 
 def test_threshold_is_unmeasurable_when_too_few_rods_grow():
     assert math.isnan(measured_critical_twist(twist.scenario, synthetic(1.05)))
+
+
+def test_growth_stops_counting_once_a_rod_has_buckled():
+    # A rod that grows, buckles, passes through itself and comes back near straight:
+    # only its growth before it first left the exponential range says anything.
+    t = np.linspace(0.0, twist.scenario.duration, 321)
+    rate = 1.5
+    sideways = 1e-5 * np.exp(rate * (t - RAMP))
+    sideways[sideways > 0.2] = 0.2  # looped
+    sideways[t > RAMP + 6.0] = 1e-4  # back near straight, and no longer growing
+    rod = twist.scenario.rods[0]
+    ends = np.array(rod.centerline)[[0, -1]]
+    nodes = np.repeat(np.stack([ends[0], ends.mean(axis=0), ends[1]])[None], len(t), axis=0)
+    nodes[:, 1, 2] = sideways
+    single = type(twist.scenario)(rods=(rod,), duration=twist.scenario.duration)
+    (measured,) = growth_rates(single, Trajectory(t, (nodes,)))
+    assert measured == pytest.approx(rate, rel=1e-6)

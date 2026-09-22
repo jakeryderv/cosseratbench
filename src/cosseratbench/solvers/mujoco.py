@@ -47,9 +47,9 @@ def _rod_xml(
     </composite>"""
     # MuJoCo's equality constraints are soft, and at their default stiffness a held end
     # drifts by millimetres under the cable's weight. Make them as stiff as the step allows.
-    # Known limits of welds, found on the twist experiment: a cable clamped at both ends
-    # diverges once it holds about 5 rad of twist, or sooner if twisted at a few rad/s,
-    # and softer welds survive only by letting the clamped end turn with the twist.
+    # A known limit of welds, found on the twist experiment: a cable clamped at both ends
+    # diverges once it holds about 5 rad of twist, and softer welds survive only by
+    # letting the clamped end turn with the twist.
     stiff = f'solref="{2.0 * dt!r} 1" solimp="0.99 0.999 0.0001"'
     equality = ""
     mocaps = []

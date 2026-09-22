@@ -113,6 +113,30 @@ class MySolver:
     def run(self, scenario: Scenario, *, n_elements: int, n_frames: int) -> Trajectory: ...
 ```
 
+A solver that breaks down should raise `cosseratbench.solver.Diverged`, with the
+simulated time if it knows it; the runner also catches blow-ups a solver misses.
+To take part in time step sweeps, accept a `time_step_scale` keyword in the
+constructor and multiply your own choice of step by it.
+
+An experiment builds its scenario from its parameters:
+
+```python
+from cosseratbench import Experiment, Parameter
+
+
+def build(youngs_modulus: float) -> Scenario: ...
+
+
+my_experiment = Experiment(
+    name="myexperiment",
+    description="One line for listings.",
+    build=build,
+    parameters=(Parameter("youngs_modulus", default=1e6, values=(1e5, 1e6, 1e7), unit="Pa"),),
+    metrics={"my_metric": my_metric},  # functions of (scenario, trajectory)
+    notes="What it explores and what to look for; the viewer shows this.",
+)
+```
+
 The built-in solvers and experiments register the same way; see
 `src/cosseratbench/solvers` and `src/cosseratbench/experiments`.
 

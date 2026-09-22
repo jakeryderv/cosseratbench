@@ -128,9 +128,8 @@ class PyElasticaSolver:
                 time = stepper.step(simulator, time, dt)
             for rod, history in zip(rods, frames):
                 history.append(rod.position_collection.T.copy())
-
-        if not all(np.isfinite(history[-1]).all() for history in frames):
-            raise Diverged("PyElastica simulation diverged")
+            if not all(np.isfinite(history[-1]).all() for history in frames):
+                raise Diverged("PyElastica simulation diverged", time=float(time))
         times = np.linspace(0.0, scenario.duration, n_frames)
         return Trajectory(times, tuple(np.stack(history) for history in frames))
 
