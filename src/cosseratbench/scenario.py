@@ -63,11 +63,16 @@ class Motion:
     rotation is a rotation vector, axis times angle in radians. Between times both
     are interpolated linearly, and after the last the end holds still. Sample a
     smooth motion finely enough that its corners do not matter.
+
+    With ``slides_along``, the end is not held along that direction: it slides
+    freely along it under whatever acts on it, such as a load hanging from it.
+    The motion then moves it only across that direction, and turns it only about it.
     """
 
     times: tuple[float, ...]  # s, from 0
     displacement: tuple[Vec3, ...]  # m
     rotation: tuple[Vec3, ...]  # rad
+    slides_along: Vec3 | None = None
 
     def __post_init__(self) -> None:
         times = np.asarray(self.times, dtype=float)
@@ -77,6 +82,21 @@ class Motion:
             raise ValueError("displacement and rotation need one entry per time")
         if any(self.displacement[0]) or any(self.rotation[0]):
             raise ValueError("a motion starts where the end starts: zero at time 0")
+        if self.slides_along is not None:
+            axis = self.axis
+            along = np.asarray(self.displacement, float) @ axis
+            rotation = np.asarray(self.rotation, float)
+            across = np.linalg.norm(rotation - np.outer(rotation @ axis, axis), axis=1)
+            if np.any(np.abs(along) > 1e-12) or np.any(across > 1e-12):
+                raise ValueError(
+                    "a sliding end moves only across its slide direction and turns only about it"
+                )
+
+    @property
+    def axis(self) -> np.ndarray:
+        """The unit slide direction."""
+        axis = np.asarray(self.slides_along, dtype=float)
+        return axis / np.linalg.norm(axis)
 
     def _segment(self, time: float) -> tuple[int, float]:
         """Index of the interval containing ``time`` and how far through it, in [0, 1]."""
@@ -193,9 +213,10 @@ class Scenario:
     rods: tuple[Rod, ...]
     duration: float  # s
     gravity: Vec3 = (0.0, 0.0, 0.0)  # m/s^2
-    # When True only the final equilibrium matters, and a solver may add whatever
-    # dissipation gets it there. When False the dynamics are the result, and a
-    # solver must add none beyond what the scenario specifies.
+    # When True the result is equilibrium: the final state, or the states passed
+    # through as a load changes slowly, and a solver may add whatever dissipation
+    # gets it there. When False the dynamics are the result, and a solver must add
+    # none beyond what the scenario specifies.
     quasi_static: bool = False
 
     def slowest_frequency(self) -> float:

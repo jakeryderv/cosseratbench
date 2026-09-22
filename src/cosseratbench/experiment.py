@@ -29,6 +29,7 @@ class Experiment:
     metrics: Mapping[str, Metric]
     requires: frozenset[Capability] = frozenset()
     n_elements: int = 50  # default resolution
+    n_frames: int = 101  # frames recorded, evenly spaced from start to end
     reference: Reference | None = None
 
     def save(self, directory: Path) -> None:
@@ -99,9 +100,10 @@ def run(
     solver: Solver,
     *,
     n_elements: int | None = None,
-    n_frames: int = 101,
+    n_frames: int | None = None,
 ) -> Result:
     n_elements = n_elements or experiment.n_elements
+    n_frames = n_frames or experiment.n_frames
     missing = experiment.requires - solver.capabilities
     if missing:
         names = tuple(sorted(c.value for c in missing))
