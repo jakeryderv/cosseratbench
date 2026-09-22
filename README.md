@@ -1,6 +1,12 @@
 # cosseratbench
 
-***A visual benchmark suite for evaluating rope, cable, and Cosserat rod simulation across deformation, contact, and dynamic stress cases.***
+***A tool for exploring, comparing, and stress-testing simulations of slender flexible bodies.***
+
+What works well, what becomes difficult, and what breaks, for which solver,
+under which conditions. See the [vision](docs/vision.md) for the idea behind it,
+and [findings](docs/findings.md) for what it has shown so far.
+
+The scenarios it is growing toward:
 
 | #  | Experiment                         | What it tests                                                           |
 | -- | ---------------------------------- | ----------------------------------------------------------------------- |
@@ -29,8 +35,8 @@ Rod ends can be driven: moved, turned, or left free to slide under a load.
 Contact is not built yet.
 
 Known solver limit: MuJoCo cannot run the twist experiment. A cable clamped at
-both ends diverges once it holds about 5 rad of twist, or sooner when twisted
-quickly, and softer clamps let the end turn with the twist instead of holding it.
+both ends diverges once it holds about 5 rad of twist; see
+[findings](docs/findings.md) for this and other solver behaviour.
 
 ## Usage
 
@@ -57,6 +63,13 @@ table; the speed of the fastest node over time; and the physical scenario.
 `cosseratbench site OUT` writes the same page as static files, for hosting
 anywhere (GitHub Pages, for example). The page loads three.js from a CDN, so it
 needs a network connection.
+
+## Documentation
+
+- [Vision](docs/vision.md): what the project is for and the principles behind it.
+- [Findings](docs/findings.md): what the experiments have shown about each solver,
+  and about measuring them.
+- [Decisions](docs/decisions/README.md): the choices that shape the project, and why.
 
 ## How it fits together
 
