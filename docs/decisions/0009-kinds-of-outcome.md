@@ -33,4 +33,7 @@ expected.
   than trusted, which is the fairness rule for contact.
 - As built, results record `outcome` and, for a divergence, the time it was first
   seen. Observations are `max_strain`, the largest stretch or compression of
-  any segment, and `max_penetration` on runs with obstacles.
+  any segment, `max_penetration` on runs with obstacles, and `max_rod_overlap`
+  ([0011](0011-contact-between-rods.md)). Energy drift is not yet observed:
+  trajectories carry positions and directors ([0013](0013-trajectories-carry-orientation.md))
+  but not velocities, so it is deferred until they do.

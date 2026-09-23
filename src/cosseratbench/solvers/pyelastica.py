@@ -65,26 +65,15 @@ class _DrivenClamp(ea.ConstraintBase):
         system.omega_collection[:, self.element] = frame @ angular_velocity
 
 
-def _directors(nodes: np.ndarray, normal: np.ndarray) -> np.ndarray:
-    """Material frames [3, 3, n_elements] carried along the centerline by parallel
-    transport, starting from ``normal`` projected perpendicular to the first tangent."""
+def _frames(spec: Rod, n_elements: int) -> np.ndarray:
+    """Material frames [3, 3, n_elements] of the rod as it starts: the scenario's
+    directors, the tangents, and the direction that completes each right-handed frame.
+    Directors are the rows of the frame, as PyElastica keeps them."""
+    nodes = spec.nodes(n_elements)
     tangents = np.diff(nodes, axis=0)
     tangents /= np.linalg.norm(tangents, axis=1, keepdims=True)
-    d1 = normal - np.dot(normal, tangents[0]) * tangents[0]
-    d1 /= np.linalg.norm(d1)
-
-    directors = np.empty((3, 3, len(tangents)))
-    for i, tangent in enumerate(tangents):
-        if i > 0:
-            axis = np.cross(tangents[i - 1], tangent)
-            sin, cos = np.linalg.norm(axis), np.dot(tangents[i - 1], tangent)
-            if sin > 1e-12:
-                axis /= sin
-                d1 = d1 * cos + np.cross(axis, d1) * sin + axis * np.dot(axis, d1) * (1.0 - cos)
-        directors[0, :, i] = d1
-        directors[1, :, i] = np.cross(tangent, d1)
-        directors[2, :, i] = tangent
-    return directors
+    d1 = spec.directors(n_elements)
+    return np.stack([d1, np.cross(tangents, d1), tangents], axis=0).transpose(0, 2, 1)
 
 
 def _stable_time_step(rod: Rod, n_elements: int) -> float:
@@ -129,16 +118,23 @@ class PyElasticaSolver:
 
         stepper = ea.PositionVerlet()
         frames = [[rod.position_collection.T.copy()] for rod in rods]
+        # The first row of each element's frame is its d1, the scenario's director.
+        turned = [[rod.director_collection[0].T.copy()] for rod in rods]
         time = 0.0
         for _ in range(n_frames - 1):
             for _ in range(steps_per_frame):
                 time = stepper.step(simulator, time, dt)
-            for rod, history in zip(rods, frames):
+            for rod, history, directors in zip(rods, frames, turned):
                 history.append(rod.position_collection.T.copy())
+                directors.append(rod.director_collection[0].T.copy())
             if not all(np.isfinite(history[-1]).all() for history in frames):
                 raise Diverged("PyElastica simulation diverged", time=float(time))
         times = np.linspace(0.0, scenario.duration, n_frames)
-        return Trajectory(times, tuple(np.stack(history) for history in frames))
+        return Trajectory(
+            times,
+            tuple(np.stack(history) for history in frames),
+            tuple(np.stack(directors) for directors in turned),
+        )
 
     @staticmethod
     def _add_cylinder(simulator: _Simulator, obstacle: Cylinder) -> ea.Cylinder:
@@ -248,7 +244,7 @@ class PyElasticaSolver:
             youngs_modulus=spec.material.youngs_modulus,
             shear_modulus=spec.material.shear_modulus,
             position=rest.T.copy(),
-            directors=_directors(nodes, np.asarray(spec.normal, dtype=float)),
+            directors=_frames(spec, n_elements),
         )
         rod.position_collection[:] = nodes.T
         simulator.append(rod)

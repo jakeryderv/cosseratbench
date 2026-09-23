@@ -38,7 +38,8 @@ class FakeSolver:
         nodes = scenario.rods[0].nodes(n_elements)
         frames = np.repeat(nodes[None], n_frames, axis=0)
         frames[-1] *= self.stretch
-        return Trajectory(np.linspace(0.0, scenario.duration, n_frames), (frames,))
+        directors = np.repeat(scenario.rods[0].directors(n_elements)[None], n_frames, axis=0)
+        return Trajectory(np.linspace(0.0, scenario.duration, n_frames), (frames,), (directors,))
 
 
 def experiment(**overrides) -> Experiment:
@@ -56,6 +57,49 @@ def test_rod_length_and_resampling_follow_the_centerline():
     assert bent.length == pytest.approx(2.0)
     nodes = bent.nodes(4)
     np.testing.assert_allclose(nodes, [(0, 0, 0), (0.5, 0, 0), (1, 0, 0), (1, 0.5, 0), (1, 1, 0)])
+
+
+def test_directors_start_at_the_normal_and_follow_the_rod_round_a_bend():
+    # A rod bent through a quarter turn in the x-y plane, with its normal out of it.
+    bent = Rod(centerline=((0, 0, 0), (1, 0, 0), (1, 1, 0)), radius=0.01, material=RUBBER)
+    directors = bent.directors(4)
+    assert directors.shape == (4, 3)
+    np.testing.assert_allclose(directors, [(0, 0, 1)] * 4, atol=1e-12)  # carried unchanged
+
+    # With the normal in the plane of the bend, it turns with the rod: no twist either way.
+    in_plane = Rod(bent.centerline, 0.01, RUBBER, normal=(0.0, 1.0, 0.0))
+    directors = in_plane.directors(4)
+    np.testing.assert_allclose(directors[:2], [(0, 1, 0)] * 2, atol=1e-12)
+    np.testing.assert_allclose(directors[2:], [(-1, 0, 0)] * 2, atol=1e-12)
+    with pytest.raises(ValueError, match="normal"):
+        Rod(STRAIGHT.centerline, 0.01, RUBBER, normal=(1.0, 0.0, 0.0)).directors(2)
+
+
+def test_twist_is_the_turn_of_the_director_beyond_what_the_bend_carries():
+    from cosseratbench.metrics import twist_angles
+
+    # A straight rod whose director turns 0.1 rad per element: 0.1 rad of twist per node.
+    nodes = np.stack([np.linspace(0, 1, 6), np.zeros(6), np.zeros(6)], axis=1)
+    angles = 0.1 * np.arange(5)
+    directors = np.stack([np.zeros(5), -np.sin(angles), np.cos(angles)], axis=1)
+    np.testing.assert_allclose(twist_angles(nodes, directors), 0.1, atol=1e-12)
+    # A bent, untwisted rod: none, whichever way its normal points.
+    for normal in ((0.0, 0.0, 1.0), (0.0, 1.0, 0.0), (0.3, 0.5, 0.8)):
+        bent = Rod(((0, 0, 0), (1, 0, 0), (1, 1, 0), (1, 1, 1)), 0.01, RUBBER, normal=normal)
+        np.testing.assert_allclose(twist_angles(bent.nodes(9), bent.directors(9)), 0.0, atol=1e-12)
+    # Frames stack: a whole trajectory at once.
+    trajectory = np.repeat(nodes[None], 3, axis=0), np.repeat(directors[None], 3, axis=0)
+    assert twist_angles(*trajectory).shape == (3, 4)
+
+
+def test_a_trajectory_needs_a_director_for_every_element():
+    times = np.array([0.0, 1.0])
+    positions = np.zeros((2, 5, 3))
+    Trajectory(times, (positions,), (np.zeros((2, 4, 3)),))
+    with pytest.raises(ValueError, match="directors"):
+        Trajectory(times, (positions,), ())
+    with pytest.raises(ValueError, match="directors"):
+        Trajectory(times, (positions,), (np.zeros((2, 5, 3)),))
 
 
 def test_a_rod_can_start_stretched():
@@ -149,6 +193,7 @@ def test_trajectory_round_trips_through_disk(tmp_path):
     loaded = Trajectory.load(tmp_path / "t.npz")
     np.testing.assert_array_equal(loaded.times, trajectory.times)
     np.testing.assert_array_equal(loaded.positions[0], trajectory.positions[0])
+    np.testing.assert_array_equal(loaded.directors[0], trajectory.directors[0])
 
 
 def test_run_computes_metrics_from_the_trajectory():
@@ -273,7 +318,7 @@ def test_penetration_is_how_deep_nodes_sink_into_obstacles():
     positions[:, :, 2] = 0.11  # just touching
     positions[1, 1, 2] = 0.105  # its middle node sinks half its radius
     touching = Scenario(rods=(rod,), obstacles=(cylinder,), duration=1.0)
-    trajectory = Trajectory(np.array([0.0, 1.0]), (positions,))
+    trajectory = Trajectory(np.array([0.0, 1.0]), (positions,), (np.zeros((2, 2, 3)),))
     assert max_penetration(touching, trajectory) == pytest.approx(0.5)
     assert math.isnan(max_penetration(Scenario(rods=(rod,), duration=1.0), trajectory))
 
@@ -320,6 +365,7 @@ def test_overlap_is_how_far_rods_pass_into_each_other():
     frames = Trajectory(
         np.arange(3.0),
         (np.stack([clear[0], touching[0], sunk[0]]), np.stack([clear[1], touching[1], sunk[1]])),
+        (np.zeros((3, 2, 3)),) * 2,
     )
     # They touch at 0.2 apart and the deepest frame is 0.05 in, half a radius.
     assert max_rod_overlap(scenario, frames) == pytest.approx(0.5)
@@ -332,7 +378,8 @@ def test_overlap_ignores_the_neighbours_a_rod_cannot_bend_back_onto():
     rod = Rod(((0, 0, 0), (1, 0, 0)), 0.3, RUBBER)
     positions = rod.nodes(6)[None, :, :]
     scenario = Scenario(rods=(rod,), duration=1.0)
-    assert math.isnan(max_rod_overlap(scenario, Trajectory(np.array([0.0]), (positions,))))
+    still = Trajectory(np.array([0.0]), (positions,), (np.zeros((1, 6, 3)),))
+    assert math.isnan(max_rod_overlap(scenario, still))
 
     # Folded in half, the two halves lie on top of each other and it is reported.
     thin = Rod(((0, 0, 0), (1, 0, 0)), 0.02, RUBBER)
@@ -341,7 +388,8 @@ def test_overlap_ignores_the_neighbours_a_rod_cannot_bend_back_onto():
         + [[x, 0.0, 0.01] for x in np.linspace(0.45, 0.0, 10)]
     )
     scenario = Scenario(rods=(thin,), duration=1.0)
-    overlap = max_rod_overlap(scenario, Trajectory(np.array([0.0]), (folded[None, :, :],)))
+    folded_frames = Trajectory(np.array([0.0]), (folded[None],), (np.zeros((1, 20, 3)),))
+    overlap = max_rod_overlap(scenario, folded_frames)
     assert overlap == pytest.approx((0.04 - 0.01) / 0.02, rel=1e-6)
 
 

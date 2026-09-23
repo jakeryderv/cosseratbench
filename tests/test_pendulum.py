@@ -72,7 +72,7 @@ def swing(period, amplitude=AMPLITUDE, decay=0.0, wobble=0.0, frames=101):
     x += wobble * np.sin(2 * np.pi * 12.3 * t)
     positions = np.zeros((frames, 2, 3))
     positions[:, 1, 0] = x
-    return Trajectory(t, (positions,))
+    return Trajectory(t, (positions,), (np.zeros((frames, 1, 3)),))
 
 
 def test_metrics_read_period_and_energy_loss_from_the_swing():

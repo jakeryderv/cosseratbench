@@ -41,10 +41,15 @@ def test_build_writes_the_viewer_a_manifest_and_browser_readable_trajectories(tm
     assert listed_run["trajectory"]["n_nodes"] == [5]
     assert listed_run["trajectory"]["times"] == [0.0, 0.5, 1.0]
 
-    # The binary the browser reads holds the same positions as the saved trajectory.
-    served = np.fromfile(out / listed_run["trajectory"]["file"], dtype="<f4").reshape(3, 5, 3)
+    # The binary the browser reads holds the saved trajectory: positions, then directors.
+    served = np.fromfile(out / listed_run["trajectory"]["file"], dtype="<f4")
     saved = Trajectory.load(results / "still" / "default" / "fake" / "trajectory.npz")
-    np.testing.assert_allclose(served, saved.positions[0], rtol=1e-6)
+    positions, directors = (
+        served[: 3 * 5 * 3].reshape(3, 5, 3),
+        served[3 * 5 * 3 :].reshape(3, 4, 3),
+    )
+    np.testing.assert_allclose(positions, saved.positions[0], rtol=1e-6)
+    np.testing.assert_allclose(directors, saved.directors[0], rtol=1e-6)
 
 
 def test_build_lists_runs_without_a_trajectory_and_explains_them(tmp_path):

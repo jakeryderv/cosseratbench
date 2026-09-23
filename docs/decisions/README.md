@@ -18,3 +18,4 @@ replaced, the old record stays and says what replaced it.
 | [0010](0010-contact-with-obstacles.md) | Contact with obstacles, and how it is judged | Accepted |
 | [0011](0011-contact-between-rods.md) | Contact between rods, and saying when it can happen | Accepted |
 | [0012](0012-scipy-for-references.md) | SciPy for references that have no closed form | Accepted |
+| [0013](0013-trajectories-carry-orientation.md) | Trajectories carry orientation | Accepted |

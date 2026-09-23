@@ -2,8 +2,9 @@
 
 The site is plain files, so it can be served locally or hosted anywhere static.
 Browsers cannot read ``.npz``, so each trajectory is rewritten as raw
-little-endian float32, rod after rod, each ``[n_frames, n_nodes, 3]``; the
-manifest carries the shapes.
+little-endian float32: every rod's positions, each ``[n_frames, n_nodes, 3]``,
+then every rod's directors, each ``[n_frames, n_nodes - 1, 3]``; the manifest
+carries the shapes.
 """
 
 from __future__ import annotations
@@ -35,7 +36,8 @@ def _run(result_dir: Path, file_stem: Path, data_dir: Path) -> dict:
         trajectory = Trajectory.load(path)
         file = data_dir / file_stem.with_suffix(".f32")
         file.parent.mkdir(parents=True, exist_ok=True)
-        file.write_bytes(b"".join(rod.astype("<f4").tobytes() for rod in trajectory.positions))
+        blocks = [*trajectory.positions, *trajectory.directors]
+        file.write_bytes(b"".join(block.astype("<f4").tobytes() for block in blocks))
         run["trajectory"] = {
             "file": file.relative_to(data_dir.parent).as_posix(),
             "times": trajectory.times.tolist(),

@@ -61,4 +61,5 @@ def test_slide_is_how_far_the_light_end_rose_even_if_the_rope_then_fell_off():
     heights = np.array([-0.15, -0.05, 0.05, -1.0, -3.0])  # up over the top, then off and down
     positions = np.zeros((5, 3, 3))
     positions[:, 0, 2] = heights
-    assert slide(capstan.scenario, Trajectory(t, (positions,))) == pytest.approx(0.2)
+    trajectory = Trajectory(t, (positions,), (np.zeros((5, 2, 3)),))
+    assert slide(capstan.scenario, trajectory) == pytest.approx(0.2)
