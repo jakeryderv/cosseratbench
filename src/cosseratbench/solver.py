@@ -15,6 +15,8 @@ class Capability(Enum):
 
     STRETCH = "stretch"
     SHEAR = "shear"
+    ROD_CONTACT = "rod_contact"  # rods do not pass through each other, or themselves
+    ROD_FRICTION = "rod_friction"  # and they resist sliding where they touch
 
 
 class Diverged(FloatingPointError):

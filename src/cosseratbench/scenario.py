@@ -7,12 +7,24 @@ to solver adapters. All quantities are SI.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from enum import Enum
 
 import numpy as np
 
 Vec3 = tuple[float, float, float]
+
+
+def neighbour_elements(radius: float, segment_length: float) -> int:
+    """How far apart along a rod two of its elements must be before they can touch.
+
+    A rod cannot bend back on itself in less than a half-turn of its own radius, so
+    elements nearer than this along it are neighbours rather than contact. Both
+    solvers and the overlap measurement use the same rule, so they agree on what
+    counts as a rod touching itself. It is PyElastica's.
+    """
+    return 1 + math.ceil(0.8 * math.pi * radius / segment_length)
 
 
 @dataclass(frozen=True)
@@ -142,6 +154,10 @@ class Rod:
     ``centerline`` is the initial shape as a polyline. Two points describe a
     straight rod.
 
+    ``friction`` is the Coulomb coefficient where this rod touches another rod or
+    itself; where two things with coefficients of their own touch, the larger
+    applies. Rods never pass through each other whatever it is.
+
     ``rest_arc_length``, if given, is the unstretched distance along the rod to
     each centerline point, so a rod can start stretched: a cable already hanging
     in equilibrium, say, rather than one that stretches the moment gravity acts.
@@ -161,6 +177,7 @@ class Rod:
     rest_arc_length: tuple[float, ...] | None = None  # m, one per centerline point, from 0
     start_motion: Motion | None = None
     end_motion: Motion | None = None
+    friction: float = 0.0
 
     def motion(self, end: End) -> Motion | None:
         return self.start_motion if end is End.START else self.end_motion
@@ -214,7 +231,8 @@ class Cylinder:
 
     ``friction`` is the Coulomb coefficient between it and any rod: a rod pressed
     on it with force N resists sliding with force up to friction * N, the same
-    whether starting to slide or already sliding. How a solver makes contact stiff
+    whether starting to slide or already sliding. Against a rod with friction of
+    its own, the larger of the two applies. How a solver makes contact stiff
     and friction sticky is its own business; the benchmark reports how far rods
     sink in, and whether rods that should hold still creep.
     """
@@ -237,6 +255,13 @@ class Scenario:
     duration: float  # s
     gravity: Vec3 = (0.0, 0.0, 0.0)  # m/s^2
     obstacles: tuple[Cylinder, ...] = ()
+    # Whether a rod here can reach itself. A taut cable between two supports cannot,
+    # and saying so saves a solver looking: finding self-contact costs more than the
+    # rest of the step. It describes the scenario, not how contact is modelled, and
+    # getting it wrong is visible -- every run reports how far rods passed into
+    # themselves, whether or not anything was done about it. Rods always collide with
+    # each other; only a rod against itself is in question.
+    self_contact: bool = True
     # When True the result is equilibrium: the final state, or the states passed
     # through as a load changes slowly, and a solver may add whatever dissipation
     # gets it there. When False the dynamics are the result, and a solver must add

@@ -148,6 +148,7 @@ def build(overhang: float, friction: float) -> Scenario:
         duration=DURATION,
         gravity=(0.0, 0.0, -GRAVITY),
         quasi_static=True,
+        self_contact=False,  # the rope hangs straight down on both sides of the cylinder
     )
 
 

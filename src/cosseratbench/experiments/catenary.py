@@ -61,6 +61,10 @@ def _reference(scenario: Scenario) -> np.ndarray:
     return reference_curve(rod, float(np.linalg.norm(scenario.gravity)), span)
 
 
+def _reference_curves(scenario: Scenario) -> tuple[np.ndarray, ...]:
+    return (_reference(scenario),)
+
+
 def shape_error(scenario: Scenario, trajectory: Trajectory) -> float:
     """Largest distance from a final node to the reference catenary, in rod lengths."""
     reference = _reference(scenario)
@@ -88,6 +92,7 @@ def build(youngs_modulus: float, span: float) -> Scenario:
         duration=5.0,
         gravity=(0.0, 0.0, -9.81),
         quasi_static=True,
+        self_contact=False,  # a cable hanging between two supports cannot reach itself
     )
 
 
@@ -111,7 +116,7 @@ catenary = Experiment(
             description="Distance between the pins, for a 1 m cable; near 1 m it is almost taut.",
         ),
     ),
-    reference=_reference,
+    reference=_reference_curves,
     metrics={
         "shape_error": shape_error,
         "sag_error": sag_error,

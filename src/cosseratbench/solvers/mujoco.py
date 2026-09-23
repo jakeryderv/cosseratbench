@@ -8,7 +8,15 @@ import math
 import mujoco
 import numpy as np
 
-from cosseratbench.scenario import Cylinder, End, EndCondition, Motion, Rod, Scenario
+from cosseratbench.scenario import (
+    Cylinder,
+    End,
+    EndCondition,
+    Motion,
+    Rod,
+    Scenario,
+    neighbour_elements,
+)
 from cosseratbench.solver import Capability, Diverged
 from cosseratbench.trajectory import Trajectory
 
@@ -21,15 +29,27 @@ def _numbers(values) -> str:
     return " ".join(repr(float(v)) for v in np.ravel(values))
 
 
-# Contact groups: cable segments touch obstacles but not each other (no self-contact yet).
-_CABLE_CONTACT = 'contype="1" conaffinity="2"'
-_OBSTACLE_CONTACT = 'contype="2" conaffinity="1"'
+# Contact groups. A pair collides when one's type meets the other's affinity. Obstacles
+# take bit 0 and accept everything; each rod takes a bit of its own. A rod that cannot
+# reach itself refuses its own bit, which switches its self-collision off; one that can
+# accepts every bit. Rods beyond the 31 bits share the everything mask, which only ever
+# adds collisions, never removes them.
+_ALL_GROUPS = (1 << 31) - 1
+_OBSTACLE_GROUP = f'contype="1" conaffinity="{_ALL_GROUPS}"'
+
+
+def _rod_groups(index: int, self_contact: bool) -> str:
+    bit = 1 << (index + 1)
+    if self_contact or bit > _ALL_GROUPS:
+        return f'contype="{_ALL_GROUPS}" conaffinity="{_ALL_GROUPS}"'
+    return f'contype="{bit}" conaffinity="{_ALL_GROUPS - bit}"'
 
 
 def _obstacle_xml(obstacle: Cylinder, dt: float) -> str:
     half = obstacle.unit_axis * obstacle.length / 2
     ends = np.concatenate([np.asarray(obstacle.center) - half, np.asarray(obstacle.center) + half])
-    # MuJoCo takes the larger of two geoms' friction, so the cable carries none of its own.
+    # Where two geoms have friction of their own MuJoCo takes the larger, which is the
+    # rule the scenario states for a rod against an obstacle.
     # The model uses elliptic friction cones: MuJoCo's default pyramid allows as little as
     # mu / sqrt(2) of friction for sliding askew to the contact's axes, and let the capstan's
     # rope slide off at 95% of the overhang that holds.
@@ -38,7 +58,7 @@ def _obstacle_xml(obstacle: Cylinder, dt: float) -> str:
     return f"""
     <geom type="cylinder" fromto="{_numbers(ends)}" size="{obstacle.radius!r}"
           friction="{obstacle.friction!r} 0 0" condim="3" solref="{2.0 * dt!r} 1"
-          {_OBSTACLE_CONTACT}/>"""
+          {_OBSTACLE_GROUP}/>"""
 
 
 def _defined_first_frame(nodes: np.ndarray, normal: np.ndarray) -> np.ndarray:
@@ -62,26 +82,50 @@ def _defined_first_frame(nodes: np.ndarray, normal: np.ndarray) -> np.ndarray:
     return nudged
 
 
+def _body_names(index: int, n_elements: int) -> list[str]:
+    """What the composite calls each segment's body, in order along the rod."""
+    return [
+        f"r{index}_B_first",
+        *(f"r{index}_B_{k}" for k in range(1, n_elements - 1)),
+        f"r{index}_B_last",
+    ]
+
+
+def _exclude_xml(index: int, rod: Rod, n_elements: int) -> str:
+    """Pairs of a rod's own segments that are too close along it to touch. MuJoCo
+    already ignores segments that share a joint; this covers the rest of the span a
+    rod needs to bend back on itself, which matters only for a rod discretised
+    finer than its own thickness."""
+    apart = neighbour_elements(rod.radius, rod.length / n_elements)
+    names = _body_names(index, n_elements)
+    return "".join(
+        f"""
+    <exclude body1="{names[k]}" body2="{names[k + offset]}"/>"""
+        for offset in range(2, apart)
+        for k in range(n_elements - offset)
+    )
+
+
 def _rod_xml(
-    index: int, rod: Rod, n_elements: int, dt: float, contact: bool = False
+    index: int, rod: Rod, n_elements: int, dt: float, self_contact: bool = True
 ) -> tuple[str, str, list[tuple[str, np.ndarray, Motion | None]]]:
     """MJCF for one rod: its worldbody elements, its equality constraints, and the
     mocap bodies holding its clamped ends as (name, starting position, motion)."""
     m = rod.material
     nodes = _defined_first_frame(rod.nodes(n_elements), np.asarray(rod.normal, dtype=float))
     segments = np.linalg.norm(np.diff(nodes, axis=0), axis=1)
-    # The chain cannot stretch, so it is built in its initial shape, stretched or not.
-    # Scaling the density keeps the mass that of the unstretched rod.
-    density = float(m.density * rod.length / segments.sum())
-    if contact:
-        # Capsules roll smoothly over curved obstacles; give each the mass of its segment.
-        geom = (
-            f'type="capsule" size="{rod.radius!r}" '
-            f'mass="{m.density * rod.area * rod.length / n_elements!r}" '
-            f'friction="0 0 0" {_CABLE_CONTACT}'
-        )
-    else:
-        geom = f'type="cylinder" size="{rod.radius!r}" density="{density!r}" contype="0" conaffinity="0"'
+    # Capsules roll smoothly over curved obstacles and over each other, with contact as
+    # stiff as the step allows, as the obstacles have: at MuJoCo's default a rope sank
+    # most of a radius into the rope it was resting on. A capsule's volume is not its
+    # segment's, so each carries the mass of the segment it stands for, the unstretched
+    # rod's mass shared out: the chain cannot stretch, so it is built in its initial
+    # shape, stretched or not.
+    geom = (
+        f'type="capsule" size="{rod.radius!r}" '
+        f'mass="{m.density * rod.area * rod.length / n_elements!r}" '
+        f'friction="{rod.friction!r} 0 0" solref="{2.0 * dt!r} 1" '
+        f"{_rod_groups(index, self_contact)}"
+    )
 
     driven_start = rod.start_motion is not None
     initial = "free" if driven_start else _INITIAL[rod.start]
@@ -151,7 +195,8 @@ def _stable_time_step(rod: Rod, n_elements: int) -> float:
 
 class MuJoCoSolver:
     name = "mujoco"
-    capabilities: frozenset[Capability] = frozenset()  # segments neither stretch nor shear
+    # Segments neither stretch nor shear; they do collide, with friction.
+    capabilities = frozenset({Capability.ROD_CONTACT, Capability.ROD_FRICTION})
 
     def __init__(self, time_step_scale: float = 1.0) -> None:
         # Half the estimated stability limit, times any scale asked for.
@@ -163,9 +208,16 @@ class MuJoCoSolver:
         steps_per_frame = math.ceil(frame_interval / limit)
         dt = frame_interval / steps_per_frame
 
-        contact = bool(scenario.obstacles)
-        parts = [_rod_xml(i, rod, n_elements, dt, contact) for i, rod in enumerate(scenario.rods)]
+        parts = [
+            _rod_xml(i, rod, n_elements, dt, scenario.self_contact)
+            for i, rod in enumerate(scenario.rods)
+        ]
         obstacles = "".join(_obstacle_xml(o, dt) for o in scenario.obstacles)
+        excludes = (
+            "".join(_exclude_xml(i, rod, n_elements) for i, rod in enumerate(scenario.rods))
+            if scenario.self_contact
+            else ""
+        )
         model = mujoco.MjModel.from_xml_string(f"""
 <mujoco>
   <extension><plugin plugin="mujoco.elasticity.cable"/></extension>
@@ -175,14 +227,14 @@ class MuJoCoSolver:
   </worldbody>
   <equality>{"".join(equality for _, equality, _ in parts)}
   </equality>
+  <contact>{excludes}
+  </contact>
 </mujoco>""")
         data = mujoco.MjData(model)
         mujoco.mj_forward(model, data)
 
         segments = [
-            [model.body(f"r{i}_B_first").id]
-            + [model.body(f"r{i}_B_{k}").id for k in range(1, n_elements - 1)]
-            + [model.body(f"r{i}_B_last").id]
+            [model.body(name).id for name in _body_names(i, n_elements)]
             for i in range(len(scenario.rods))
         ]
         tips = [model.site(f"r{i}_S_last").id for i in range(len(scenario.rods))]

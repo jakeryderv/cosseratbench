@@ -72,6 +72,22 @@ large spurious spin. Held ends had hidden it. Computing it between MuJoCo's two
 half steps, from the current matrix, fixed it: a damped cable now falls at exactly
 its terminal speed.
 
+**Its cable contact is soft by default too.** *Solver setting.* On the crossing
+experiment a rope sank 0.85 of a radius into the rope it was resting on, and
+carried 1.3% too little force through the touching point. Making cable contact as
+stiff as the step allows, as the adapter already did for obstacles, left 0.003 of
+a radius and 0.05% -- the closest either solver gets to the right contact force.
+It moved the capstan's creep from 2.5 mm to 1.8 mm.
+
+**Its cable cannot stretch, and on the crossing experiment that is the whole
+error.** *Not representable.* MuJoCo gets the contact force nearly exactly right
+there (lift error 0.05%, against PyElastica's 0.3%) but is 1.1% of a rope length
+off in shape, which is the 1% of stretch it cannot do.
+
+**Two ropes crossing diverge above about 50 elements.** *Numerical breakdown.*
+The crossing experiment runs at 30 and 51 elements and blows up at 100, around
+0.35 s in, while PyElastica runs the same scenario at every resolution tried.
+
 **A diverged run resets and carries on.** *Solver behaviour.* MuJoCo resets the
 state and continues after a bad acceleration, so a diverged run looks like it
 finished. The adapter checks MuJoCo's warning counter after every frame.
@@ -95,6 +111,17 @@ friction is imitated by making that coefficient large. A rope that should hold
 still creeps instead. Contact between rods, or of a rod with itself, has no
 friction at all.
 
+**Rods slide freely over each other.** *Not representable.* `RodRodContact` and
+`RodSelfContact` take a stiffness and a damping and nothing else, so rods that
+touch have no friction however rough the scenario says they are. Experiments that
+need rods to grip declare `ROD_FRICTION`, which this solver does not claim.
+
+**Self-contact costs 2 to 5 times the rest of the step.** *Cost.* Every pair of a
+rod's elements is checked every step, with no broadphase to rule out a rod that
+cannot reach itself: with it on, the catenary went from 0.7 s to 3.1 s and the
+capstan from 2.5 s to 12.4 s, with identical answers. Scenarios say whether their
+rods can reach themselves so that this is only paid where it buys something.
+
 **On a curved obstacle its friction holds less than Coulomb's, at coarse
 resolution.** *Open question.* On the capstan at 100 elements (about 23 on the
 cylinder), PyElastica's rope slides off at 70% of the overhang that holds, where
@@ -113,6 +140,16 @@ catenary (sag error 0.77% for PyElastica, 1.3% for MuJoCo, against 0.014% and
 1.2% at 0.8 m). Halving the cable's radius, which cuts bending stiffness four
 times relative to weight, drops PyElastica's error to 0.24% at 0.6 m and leaves
 0.8 m unchanged, so the gap is the reference's, not the solvers'.
+
+**A rope with a point load on it cannot be treated as perfectly flexible.**
+*Reference limit.* Bending rounds off the kink under the load over a length
+sqrt(EI/T), about 3 cm for the crossing experiment's rope, which lifts the middle
+by 6 mm, more than the rope's radius. Two ropes resting on each other would
+then need 32% more force between them than the flexible answer says. The crossing
+experiment's reference solves the elastica instead. The same correction exists in
+the catenary, where pinned ends carry no moment and it is only 0.1 mm: PyElastica's
+sag moves toward the bending answer and away from the flexible one as resolution
+rises (6.5e-5 m off at 50 elements, 1.2e-5 at 200).
 
 **The plain capstan equation ignores the rope lying on the cylinder.** *Reference
 limit.* Its weight presses it on and adds friction. For the capstan experiment's
@@ -148,6 +185,24 @@ of twist. Growth measured on frames after that is meaningless; at three times th
 usual tension it made the twist experiment read 5.1% where the rods' actual
 growth gives 1.7%. Growth is now measured only until a rod first leaves the
 exponential range.
+
+**A node sitting exactly where two rods touch skews the contact.**
+*Measurement pitfall.* With an even number of elements each rope in the crossing
+experiment has a node exactly at the crossing, the two segment ends meet head on,
+and the penalty force comes out with a sideways component: it pushed the lower
+rope 2.9 mm out of the plane it should stay in. One element more and the ropes
+touch mid-segment, the lower rope stays in plane to 1e-15, and the error drops
+15-fold -- shape 2.6e-4 against 4.0e-3, lift 1.3e-4 against 2.1e-3, at about 100
+elements. The experiment runs at an odd count for that reason, and its resolution
+variants show the effect.
+
+**A polyline cuts the corner under a point load.** *Measurement pitfall.* Two
+ropes placed one diameter apart at the crossing have segments that already
+overlap, by 1.5 radii at 51 elements, because each rope's polyline cuts across
+the kink where the load presses on it. The run then opens with a contact impulse,
+and the overlap reported is the starting geometry rather than anything a solver
+did -- both solvers returned the same number to four figures, which is what gave
+it away. The ropes now start a centimetre clear and settle into contact.
 
 **Penetration measured on segments reflects resolution, not contact.**
 *Measurement pitfall.* A straight segment between two nodes on a curved obstacle

@@ -7,7 +7,7 @@ license = "Apache-2.0"
 license-files = ["LICENSE"]
 authors = [{ name = "Jake Van Slyke" }]
 requires-python = ">=3.10"
-dependencies = ["numpy>=1.24"]
+dependencies = ["numpy>=1.24", "scipy>=1.10"]
 
 [project.optional-dependencies]
 pyelastica = ["pyelastica>=1.0"]
@@ -32,6 +32,7 @@ cantilever = "cosseratbench.experiments.cantilever:cantilever"
 pendulum = "cosseratbench.experiments.pendulum:pendulum"
 twist = "cosseratbench.experiments.twist:twist"
 capstan = "cosseratbench.experiments.capstan:capstan"
+crossing = "cosseratbench.experiments.crossing:crossing"
 
 [dependency-groups]
 dev = ["pytest>=8", "ruff>=0.6"]

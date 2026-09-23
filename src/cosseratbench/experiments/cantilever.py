@@ -30,6 +30,10 @@ def reference_curve(scenario: Scenario, n_points: int = 201) -> np.ndarray:
     return np.stack([x, np.zeros_like(x), z], axis=1)
 
 
+def _reference_curves(scenario: Scenario) -> tuple[np.ndarray, ...]:
+    return (reference_curve(scenario),)
+
+
 def tip_deflection_error(scenario: Scenario, trajectory: Trajectory) -> float:
     """Relative error of the final tip deflection."""
     reference = reference_tip_deflection(scenario.rods[0])
@@ -50,6 +54,7 @@ def build() -> Scenario:
         ),
         duration=10.0,
         quasi_static=True,
+        self_contact=False,  # a beam bending gently under its tip load cannot reach itself
     )
 
 
@@ -57,7 +62,7 @@ cantilever = Experiment(
     name="cantilever",
     description="Clamped beam under a small tip load, against Euler-Bernoulli beam theory.",
     build=build,
-    reference=reference_curve,
+    reference=_reference_curves,
     metrics={
         "tip_deflection_error": tip_deflection_error,
         "settling_residual": settling_residual,

@@ -18,6 +18,7 @@ from cosseratbench import (
     registry,
     run,
 )
+from cosseratbench.experiment import max_rod_overlap
 from cosseratbench.experiments.pendulum import static_strain
 
 pytestmark = pytest.mark.slow
@@ -185,7 +186,7 @@ def test_mujoco_frames_a_cable_that_starts_straight_then_curves():
     from cosseratbench.experiments.capstan import capstan
     from cosseratbench.solvers.mujoco import _rod_xml
 
-    body, _, _ = _rod_xml(0, capstan.scenario.rods[0], 100, 2e-4, contact=True)
+    body, _, _ = _rod_xml(0, capstan.scenario.rods[0], 100, 2e-4)
     model = mujoco.MjModel.from_xml_string(
         '<mujoco><extension><plugin plugin="mujoco.elasticity.cable"/></extension>'
         f"<worldbody>{body}</worldbody></mujoco>"
@@ -197,3 +198,52 @@ def test_mujoco_frames_a_cable_that_starts_straight_then_curves():
     # Neighbouring segments start at most a small bend apart, never half a turn.
     turns = [2 * np.arccos(min(1.0, abs(float(a @ b)))) for a, b in itertools.pairwise(quaternions)]
     assert max(turns) < 0.2
+
+
+def test_a_rod_dropped_across_another_lands_on_it_instead_of_through_it(solver):
+    material = Material(youngs_modulus=1e6, shear_modulus=3e5, density=1000.0)
+    held = Rod(
+        ((-0.3, 0.0, 0.0), (0.3, 0.0, 0.0)),
+        radius=0.01,
+        material=material,
+        start=EndCondition.CLAMPED,
+        end=EndCondition.CLAMPED,
+    )
+    # Free at both ends, so it simply drops across the one below.
+    falling = Rod(
+        ((0.0, -0.3, 0.1), (0.0, 0.3, 0.1)),
+        radius=0.01,
+        material=material,
+        normal=(1.0, 0.0, 0.0),
+    )
+    scenario = Scenario(
+        rods=(held, falling),
+        duration=1.0,
+        gravity=(0.0, 0.0, -9.81),
+        quasi_static=True,
+        self_contact=False,
+    )
+    trajectory = solver.run(scenario, n_elements=31, n_frames=41)
+    fell, held = trajectory.positions[1][:, 15, 2], trajectory.positions[0][:, 15, 2]
+    assert fell[-1] < 0.1 - 0.05  # it dropped most of the way
+    assert (fell > held).all()  # and stayed on top of the rod below throughout
+    assert max_rod_overlap(scenario, trajectory) < 1.0  # without sinking a radius into it
+
+
+def test_a_rod_left_to_itself_stays_out_of_its_own_way(solver):
+    """Self-contact costs a solver time, so a scenario says when its rods can reach
+    themselves. Turning it on must not disturb a rod that never does."""
+    material = Material(youngs_modulus=1e6, shear_modulus=3e5, density=1000.0)
+    rod = Rod(
+        ((0.0, 0.0, 0.0), (0.5, 0.0, 0.0)),
+        radius=0.005,
+        material=material,
+        start=EndCondition.CLAMPED,
+        loads=(PointLoad(force=(0.0, 0.0, -0.02)),),
+    )
+    scenario = Scenario(rods=(rod,), duration=1.0, quasi_static=True, self_contact=False)
+    apart, together = (
+        solver.run(dataclasses.replace(scenario, self_contact=looking), n_elements=20, n_frames=11)
+        for looking in (False, True)
+    )
+    assert np.allclose(apart.positions[0][-1], together.positions[0][-1], atol=1e-9)
