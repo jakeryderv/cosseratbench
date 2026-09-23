@@ -53,19 +53,28 @@ function niceStep(span, targetTicks) {
 // ---------------------------------------------------------------- rod geometry
 
 const RADIAL_SEGMENTS = 12;
+const STRIPE_SEGMENTS = 3; // a quarter of the tube's circumference, along the director
+const STRIPE_SHADE = 0.55;
 
-/** A tube along a polyline whose vertices are rewritten in place every frame. */
+/** A tube along a polyline whose vertices are rewritten in place every frame. Its
+ * rings are laid out from the solver's material direction, and a darker stripe runs
+ * along that direction, so the tube shows how the rod is twisted. */
 class RodMesh {
   constructor(nNodes, radius, material) {
     this.nNodes = nNodes;
     this.radius = radius;
     this.nodes = new Float32Array(nNodes * 3); // the polyline currently shown
+    this.directors = new Float32Array((nNodes - 1) * 3); // one per element, as shown
 
     const vertices = nNodes * RADIAL_SEGMENTS;
     this.positions = new THREE.BufferAttribute(new Float32Array(vertices * 3), 3);
     this.normals = new THREE.BufferAttribute(new Float32Array(vertices * 3), 3);
     this.positions.setUsage(THREE.DynamicDrawUsage);
     this.normals.setUsage(THREE.DynamicDrawUsage);
+    const colors = new Float32Array(vertices * 3).fill(1);
+    for (let i = 0; i < nNodes; i++) {
+      for (let j = 0; j < STRIPE_SEGMENTS; j++) colors.fill(STRIPE_SHADE, 3 * (i * RADIAL_SEGMENTS + j), 3 * (i * RADIAL_SEGMENTS + j + 1));
+    }
 
     const index = [];
     for (let i = 0; i < nNodes - 1; i++) {
@@ -79,23 +88,29 @@ class RodMesh {
     geometry.setIndex(index);
     geometry.setAttribute("position", this.positions);
     geometry.setAttribute("normal", this.normals);
+    geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
 
     const tube = new THREE.Mesh(geometry, material);
     tube.frustumCulled = false; // its bounds change every frame
     const cap = new THREE.SphereGeometry(radius, RADIAL_SEGMENTS, 8);
+    // The material multiplies by vertex colour; the caps are plain.
+    cap.setAttribute("color", new THREE.BufferAttribute(new Float32Array(cap.attributes.position.count * 3).fill(1), 3));
     this.caps = [new THREE.Mesh(cap, material), new THREE.Mesh(cap, material)];
     this.object = new THREE.Group().add(tube, ...this.caps);
   }
 
-  /** Show the blend of two frames, each a Float32Array of nNodes * 3. */
-  show(from, to, blend) {
+  /** Show the blend of two frames: positions, each a Float32Array of nNodes * 3, and
+   * directors, each of (nNodes - 1) * 3. */
+  show(from, to, fromDirectors, toDirectors, blend) {
     const p = this.nodes;
     for (let k = 0; k < p.length; k++) p[k] = from[k] + (to[k] - from[k]) * blend;
+    const d = this.directors;
+    for (let k = 0; k < d.length; k++) d[k] = fromDirectors[k] + (toDirectors[k] - fromDirectors[k]) * blend;
 
     const n = this.nNodes;
     const position = this.positions.array;
     const normal = this.normals.array;
-    let ux = 0, uy = 0, uz = 0; // ring reference direction, carried along the rod
+    let ux = 0, uy = 0, uz = 0; // ring reference direction: the director at this node
     for (let i = 0; i < n; i++) {
       const before = 3 * Math.max(i - 1, 0);
       const after = 3 * Math.min(i + 1, n - 1);
@@ -103,14 +118,10 @@ class RodMesh {
       const tl = Math.hypot(tx, ty, tz) || 1;
       tx /= tl; ty /= tl; tz /= tl;
 
-      if (i === 0) {
-        // Start from whichever world axis is least aligned with the rod.
-        const ax = Math.abs(tx), ay = Math.abs(ty), az = Math.abs(tz);
-        ux = ax <= ay && ax <= az ? 1 : 0;
-        uy = ux === 0 && ay <= az ? 1 : 0;
-        uz = ux === 0 && uy === 0 ? 1 : 0;
-      }
-      // Carry the reference forward by removing its component along the new tangent.
+      // A node between two elements takes the mean of their directors; an end node its
+      // one element's. Made perpendicular to the tangent at the node.
+      const first = 3 * Math.max(i - 1, 0), second = 3 * Math.min(i, n - 2);
+      ux = d[first] + d[second]; uy = d[first + 1] + d[second + 1]; uz = d[first + 2] + d[second + 2];
       const along = ux * tx + uy * ty + uz * tz;
       ux -= along * tx; uy -= along * ty; uz -= along * tz;
       const ul = Math.hypot(ux, uy, uz) || 1;
@@ -258,7 +269,7 @@ function buildGrid() {
   grid.rotation.x = Math.PI / 2;
   grid.position.set(Math.round(center.x / cell) * cell, Math.round(center.y / cell) * cell, box.min.z - 0.05 * extent);
   content.add(grid);
-  $("scale").textContent = `grid ${si(cell, "m")}` +
+  $("scale").textContent = `grid ${si(cell, "m")} · the dark stripe is a material line, so it shows twist` +
     (state.thickened ? ` · thin rods drawn ${si(2 * state.thickened, "m")} thick` : "");
   invalidate();
 }
@@ -436,15 +447,21 @@ async function showVariant(variant) {
     const colorVar = seriesVar(run.solver);
     // Coincident rods would flicker where they overlap; the offset gives a stable winner.
     const material = new THREE.MeshStandardMaterial({
-      color: cssColor(colorVar), roughness: 0.55, metalness: 0,
+      color: cssColor(colorVar), roughness: 0.55, metalness: 0, vertexColors: true,
       polygonOffset: true, polygonOffsetFactor: order, polygonOffsetUnits: order,
     });
+    // The file holds every rod's positions, then every rod's directors.
+    const data = loaded[order];
     let offset = 0;
     const rods = nNodes.map((n, r) => {
-      const frames = loaded[order].subarray(offset, offset + times.length * n * 3);
+      const frames = data.subarray(offset, offset + times.length * n * 3);
       offset += frames.length;
       return { nNodes: n, frames, mesh: new RodMesh(n, radii[r], material) };
     });
+    for (const rod of rods) {
+      rod.directors = data.subarray(offset, offset + times.length * (rod.nNodes - 1) * 3);
+      offset += rod.directors.length;
+    }
     const object = new THREE.Group().add(...rods.map((rod) => rod.mesh.object));
     content.add(object);
     state.entries.push({
@@ -504,10 +521,12 @@ function seek(time) {
     const position = Math.min((state.time / entry.times[last]) * last, last); // frames are evenly spaced
     const frame = Math.min(Math.floor(position), last - 1);
     for (const rod of entry.rods) {
-      const stride = rod.nNodes * 3;
+      const stride = rod.nNodes * 3, turn = (rod.nNodes - 1) * 3;
       rod.mesh.show(
         rod.frames.subarray(frame * stride, (frame + 1) * stride),
         rod.frames.subarray((frame + 1) * stride, (frame + 2) * stride),
+        rod.directors.subarray(frame * turn, (frame + 1) * turn),
+        rod.directors.subarray((frame + 1) * turn, (frame + 2) * turn),
         position - frame,
       );
     }

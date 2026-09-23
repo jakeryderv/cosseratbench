@@ -238,6 +238,14 @@ class MuJoCoSolver:
             for i in range(len(scenario.rods))
         ]
         tips = [model.site(f"r{i}_S_last").id for i in range(len(scenario.rods))]
+        # Each segment's body carries its cross-section, so the scenario's director,
+        # written in the body's own frame at the start, is read back off the body's
+        # rotation at every frame.
+        rotations = [data.xmat[bodies].reshape(-1, 3, 3) for bodies in segments]
+        local = [
+            np.einsum("nji,nj->ni", rotation, rod.directors(n_elements))
+            for rotation, rod in zip(rotations, scenario.rods)
+        ]
         # (force, body it acts on, site it acts at)
         loads = [
             (
@@ -260,14 +268,22 @@ class MuJoCoSolver:
         momentum = np.zeros(model.nv)
         no_torque = np.zeros(3)
 
-        def nodes() -> list[np.ndarray]:
+        def state() -> tuple[list[np.ndarray], list[np.ndarray]]:
+            """Node positions and element directors of every rod, as [n, 3] each."""
             mujoco.mj_kinematics(model, data)
-            return [
+            positions = [
                 np.vstack([data.xpos[bodies], data.site_xpos[tip]])
                 for bodies, tip in zip(segments, tips)
             ]
+            directors = [
+                np.einsum("nij,nj->ni", data.xmat[bodies].reshape(-1, 3, 3), d)
+                for bodies, d in zip(segments, local)
+            ]
+            return positions, directors
 
-        frames = [[positions] for positions in nodes()]
+        positions, directors = state()
+        frames = [[p] for p in positions]
+        turned = [[d] for d in directors]
         for frame in range(n_frames - 1):
             for _ in range(steps_per_frame):
                 # Aim each driven clamp where the motion has it at the end of this step.
@@ -294,7 +310,14 @@ class MuJoCoSolver:
             if data.warning[mujoco.mjtWarning.mjWARN_BADQACC].number:
                 # MuJoCo has already reset its clock, so report the frame's time.
                 raise Diverged("MuJoCo simulation diverged", time=(frame + 1) * frame_interval)
-            for history, positions in zip(frames, nodes()):
-                history.append(positions)
+            positions, directors = state()
+            for history, p in zip(frames, positions):
+                history.append(p)
+            for history, d in zip(turned, directors):
+                history.append(d)
         times = np.linspace(0.0, scenario.duration, n_frames)
-        return Trajectory(times, tuple(np.stack(history) for history in frames))
+        return Trajectory(
+            times,
+            tuple(np.stack(history) for history in frames),
+            tuple(np.stack(history) for history in turned),
+        )

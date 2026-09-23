@@ -42,6 +42,35 @@ def segment_distance(a0: np.ndarray, a1: np.ndarray, b0: np.ndarray, b1: np.ndar
     return np.linalg.norm(r + s[..., None] * d1 - t[..., None] * d2, axis=-1)
 
 
+def twist_angles(positions: np.ndarray, directors: np.ndarray) -> np.ndarray:
+    """Twist at each interior node of a rod, in radians: how far the material
+    direction turns about the rod from one element to the next, beyond the turn the
+    bend at that node carries it through. Positive by the right-hand rule about the
+    rod's direction; summed along the rod it is the rod's total twist.
+
+    ``positions`` is [..., n_nodes, 3] and ``directors`` [..., n_nodes - 1, 3]; the
+    result is [..., n_nodes - 2], so a whole trajectory can be measured at once.
+    """
+    tangents = np.diff(positions, axis=-2)
+    tangents = tangents / np.linalg.norm(tangents, axis=-1, keepdims=True)
+    before, after = tangents[..., :-1, :], tangents[..., 1:, :]
+    d_before, d_after = directors[..., :-1, :], directors[..., 1:, :]
+    # Carry the earlier direction across the bend by the smallest rotation that takes
+    # one tangent to the next (Rodrigues); a straight junction carries it unchanged.
+    axis = np.cross(before, after)
+    sin = np.linalg.norm(axis, axis=-1, keepdims=True)
+    cos = (before * after).sum(-1, keepdims=True)
+    unit = axis / np.where(sin > 1e-12, sin, 1.0)
+    carried = (
+        d_before * cos
+        + np.cross(unit, d_before) * sin
+        + unit * (unit * d_before).sum(-1, keepdims=True) * (1.0 - cos)
+    )
+    # The carried direction is perpendicular to the later tangent, as the later
+    # director is; the twist is the angle between them about that tangent.
+    return np.arctan2((np.cross(carried, d_after) * after).sum(-1), (carried * d_after).sum(-1))
+
+
 def max_distance_to_curve(nodes: np.ndarray, curve: np.ndarray) -> float:
     """Largest distance from any of ``nodes`` [N, 3] to a densely sampled ``curve`` [M, 3]."""
     distances = np.linalg.norm(nodes[:, None, :] - curve[None, :, :], axis=2)

@@ -224,6 +224,34 @@ class Rod:
         targets = np.linspace(0.0, arc[-1], n_elements + 1)
         return np.stack([np.interp(targets, arc, points[:, axis]) for axis in range(3)], axis=1)
 
+    def directors(self, n_elements: int) -> np.ndarray:
+        """Initial material direction of each of ``n_elements`` elements, [n_elements, 3]:
+        ``normal`` projected perpendicular to the first element, carried along the rod
+        by parallel transport, so that a rod starts untwisted however it is bent."""
+        return parallel_transport(self.nodes(n_elements), np.asarray(self.normal, dtype=float))
+
+
+def parallel_transport(nodes: np.ndarray, normal: np.ndarray) -> np.ndarray:
+    """A unit direction perpendicular to each segment of the polyline ``nodes``, starting
+    from ``normal`` projected perpendicular to the first segment and turned from one
+    segment to the next by the smallest rotation that takes one tangent to the other."""
+    tangents = np.diff(nodes, axis=0)
+    tangents /= np.linalg.norm(tangents, axis=1, keepdims=True)
+    d1 = normal - np.dot(normal, tangents[0]) * tangents[0]
+    if np.linalg.norm(d1) < 1e-12:
+        raise ValueError("the rod's normal must not be parallel to its first segment")
+    d1 /= np.linalg.norm(d1)
+    directors = np.empty_like(tangents)
+    for i, tangent in enumerate(tangents):
+        if i > 0:
+            axis = np.cross(tangents[i - 1], tangent)
+            sin, cos = np.linalg.norm(axis), np.dot(tangents[i - 1], tangent)
+            if sin > 1e-12:
+                axis /= sin
+                d1 = d1 * cos + np.cross(axis, d1) * sin + axis * np.dot(axis, d1) * (1.0 - cos)
+        directors[i] = d1
+    return directors
+
 
 @dataclass(frozen=True)
 class Cylinder:

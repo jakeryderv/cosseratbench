@@ -51,7 +51,7 @@ def synthetic(critical, damping=1.5, stiffness=60.0, frames=321):
         frames_ = np.repeat(nodes[None], frames, axis=0)
         frames_[:, 1, 2] = sideways  # the middle node strays along z
         positions.append(frames_)
-    return Trajectory(t, tuple(positions))
+    return Trajectory(t, tuple(positions), tuple(np.zeros((frames, 2, 3)) for _ in positions))
 
 
 def test_fit_recovers_the_threshold_whatever_the_damping():
@@ -85,5 +85,5 @@ def test_growth_stops_counting_once_a_rod_has_buckled():
     nodes = np.repeat(np.stack([ends[0], ends.mean(axis=0), ends[1]])[None], len(t), axis=0)
     nodes[:, 1, 2] = sideways
     single = type(twist.scenario)(rods=(rod,), duration=twist.scenario.duration)
-    (measured,) = growth_rates(single, Trajectory(t, (nodes,)))
+    (measured,) = growth_rates(single, Trajectory(t, (nodes,), (np.zeros((len(t), 2, 3)),)))
     assert measured == pytest.approx(rate, rel=1e-6)

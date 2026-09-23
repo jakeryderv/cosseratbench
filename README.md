@@ -54,8 +54,8 @@ uv run cosseratbench view   # open the results in a browser
 ```
 
 Each run writes `results/<experiment>/<variant>/<solver>/result.json` (outcome,
-metrics, observations, wall time) and `trajectory.npz` (node positions over time),
-next to an `experiment.json` describing the problem. A variant is the ordinary
+metrics, observations, wall time) and `trajectory.npz` (node positions and element
+directors over time), next to an `experiment.json` describing the problem. A variant is the ordinary
 case (`default`) or one change from it: a physical parameter the experiment
 declares, the resolution, or `time_step_scale`, which multiplies the time step
 each solver would choose. `cosseratbench list` shows what each experiment can vary. Wall time excludes a short warm-up run, so one-off costs
@@ -65,8 +65,9 @@ such as JIT compilation do not count against a solver.
 
 `cosseratbench view` serves an interactive page for whatever is under `results/`:
 3D playback of every solver on one timeline, overlaid or split into panes that
-share a camera, with the analytical reference drawn where one exists; the metrics
-table; the speed of the fastest node over time; and the physical scenario.
+share a camera, with the analytical reference drawn where one exists and a stripe
+along each rod that turns with its material, so twist shows; the metrics table;
+the speed of the fastest node over time; and the physical scenario.
 
 `cosseratbench site OUT` writes the same page as static files, for hosting
 anywhere (GitHub Pages, for example). The page loads three.js from a CDN, so it
@@ -87,9 +88,9 @@ needs a network connection.
   element counts, contact stiffnesses and damping coefficients are not part of
   it; they are each solver's business.
 - A **solver** adapter turns a scenario into a **trajectory**, node positions
-  over time, at a requested resolution. It declares the physics it models
-  (`Capability`), and an experiment that needs more is reported as unsupported
-  rather than run.
+  and a material direction per element over time, at a requested resolution. It
+  declares the physics it models (`Capability`), and an experiment that needs
+  more is reported as unsupported rather than run.
 - An **experiment** pairs a scenario with **metrics**. Metrics see only the
   scenario and the trajectory, so every solver is judged by the same code.
 
@@ -116,8 +117,12 @@ class MySolver:
     def run(self, scenario: Scenario, *, n_elements: int, n_frames: int) -> Trajectory: ...
 ```
 
-A solver that breaks down should raise `cosseratbench.solver.Diverged`, with the
-simulated time if it knows it; the runner also catches blow-ups a solver misses.
+A trajectory holds each rod's node positions, `[n_frames, n_elements + 1, 3]`, and
+one unit director per element, `[n_frames, n_elements, 3]`: the material direction
+that starts as `Rod.directors(n_elements)`, perpendicular to the element, and
+turns with the rod's cross-section. A solver that breaks down should raise
+`cosseratbench.solver.Diverged`, with the simulated time if it knows it; the
+runner also catches blow-ups a solver misses.
 To take part in time step sweeps, accept a `time_step_scale` keyword in the
 constructor and multiply your own choice of step by it.
 

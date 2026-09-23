@@ -20,6 +20,7 @@ from cosseratbench import (
 )
 from cosseratbench.experiment import max_rod_overlap
 from cosseratbench.experiments.pendulum import static_strain
+from cosseratbench.metrics import twist_angles
 
 pytestmark = pytest.mark.slow
 
@@ -149,6 +150,34 @@ def test_a_sliding_end_slides_under_a_pull(solver):
     )
     assert tip[0] - 1.0 == pytest.approx(stretch, rel=0.01, abs=2e-6)
     np.testing.assert_allclose(tip[1:], 0.0, atol=1e-9)
+
+
+def test_directors_show_the_twist_a_turned_clamp_puts_in(solver):
+    """Every solver reports the same material line: the scenario's directors at the
+    start, unit and perpendicular to the rod throughout, and turned by as much as the
+    clamp turned once the rod has settled (1 rad here, well below buckling)."""
+    times, turned = eased(np.array([1.0, 0.0, 0.0]))
+    still = tuple((0.0, 0.0, 0.0) for _ in times)
+    rod = Rod(
+        centerline=((0, 0, 0), (1, 0, 0)),
+        radius=0.01,
+        material=Material(1e6, 1e6 / 3.0, 1000.0),
+        start=EndCondition.CLAMPED,
+        end=EndCondition.CLAMPED,
+        end_motion=Motion(times, still, turned, slides_along=(1.0, 0.0, 0.0)),
+        loads=(PointLoad(force=(1.0, 0.0, 0.0)),),
+    )
+    scenario = Scenario(rods=(rod,), duration=6.0, quasi_static=True, self_contact=False)
+    trajectory = solver.run(scenario, n_elements=20, n_frames=13)
+    positions, directors = trajectory.positions[0], trajectory.directors[0]
+    tangents = np.diff(positions, axis=1)
+    tangents /= np.linalg.norm(tangents, axis=2, keepdims=True)
+    np.testing.assert_allclose(np.linalg.norm(directors, axis=2), 1.0, atol=1e-9)
+    assert np.abs((directors * tangents).sum(axis=2)).max() < 1e-5
+    np.testing.assert_allclose(directors[0], rod.directors(20), atol=1e-9)
+    total = twist_angles(positions, directors).sum(axis=1)
+    assert total[0] == pytest.approx(0.0, abs=1e-9)
+    assert total[-1] == pytest.approx(1.0, rel=1e-3)  # MuJoCo's weld gives 2e-4 of it back
 
 
 def test_twist_buckles_near_greenhill(solver):
