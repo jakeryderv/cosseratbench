@@ -104,7 +104,9 @@ def _stable_time_step(rod: Rod, n_elements: int) -> float:
 
 class PyElasticaSolver:
     name = "pyelastica"
-    capabilities = frozenset({Capability.STRETCH, Capability.SHEAR})
+    capabilities = frozenset(
+        {Capability.STRETCH, Capability.SHEAR, Capability.ROD_CONTACT}
+    )  # PyElastica's rod-rod and self-contact are frictionless: no ROD_FRICTION
 
     def __init__(self, time_step_scale: float = 1.0) -> None:
         # Half the estimated stability limit, times any scale asked for.
@@ -122,6 +124,7 @@ class PyElasticaSolver:
             cylinder = self._add_cylinder(simulator, obstacle)
             for spec, rod in zip(scenario.rods, rods):
                 self._add_contact(simulator, rod, cylinder, spec, obstacle, n_elements, dt)
+        self._add_rod_contact(simulator, scenario, rods, n_elements, dt)
         simulator.finalize()
 
         stepper = ea.PositionVerlet()
@@ -156,6 +159,47 @@ class PyElasticaSolver:
         return cylinder
 
     @staticmethod
+    def _node_mass(spec: Rod, n_elements: int) -> float:
+        return spec.material.density * spec.area * spec.length / n_elements
+
+    @staticmethod
+    def _spring(mass: float, dt: float) -> tuple[float, float]:
+        """Penalty stiffness and damping for a contact: as stiff as the explicit step
+        allows, a contact vibration of a node of ``mass`` no faster than 0.5 / dt,
+        damped near critically."""
+        stiffness = mass * (0.5 / dt) ** 2
+        return stiffness, float(np.sqrt(stiffness * mass))
+
+    @classmethod
+    def _add_rod_contact(
+        cls,
+        simulator: _Simulator,
+        scenario: Scenario,
+        rods: list[ea.CosseratRod],
+        n_elements: int,
+        dt: float,
+    ) -> None:
+        """Rods against each other and against themselves. PyElastica's contact here is
+        a normal penalty spring only: it has no friction between rods, so rods that
+        touch slide freely over each other whatever their friction says. Experiments
+        that need it require Capability.ROD_FRICTION, which this solver does not claim.
+
+        A pair's spring is sized by the lighter of the two rods' nodes, so the contact
+        vibration stays inside the step for both.
+        """
+        masses = [cls._node_mass(spec, n_elements) for spec in scenario.rods]
+        for i, rod in enumerate(rods):
+            if scenario.self_contact:
+                # PyElastica checks every pair of a rod's elements every step, with no
+                # broadphase, which costs several times the rest of the step; a scenario
+                # whose rods cannot reach themselves says so and skips it.
+                k, nu = cls._spring(masses[i], dt)
+                simulator.detect_contact_between(rod, rod).using(ea.RodSelfContact, k=k, nu=nu)
+            for j in range(i + 1, len(rods)):
+                k, nu = cls._spring(min(masses[i], masses[j]), dt)
+                simulator.detect_contact_between(rod, rods[j]).using(ea.RodRodContact, k=k, nu=nu)
+
+    @staticmethod
     def _add_contact(
         simulator: _Simulator,
         rod: ea.CosseratRod,
@@ -171,14 +215,14 @@ class PyElasticaSolver:
         # of it and Coulomb's, so a strong viscous term only stops rods creeping: Coulomb's
         # cap keeps the force bounded. The benchmark reports how deep rods sink and
         # whether they creep, so these choices are visible rather than trusted.
-        node_mass = spec.material.density * spec.area * spec.length / n_elements
-        stiffness = node_mass * (0.5 / dt) ** 2
+        node_mass = PyElasticaSolver._node_mass(spec, n_elements)
+        stiffness, damping = PyElasticaSolver._spring(node_mass, dt)
         simulator.detect_contact_between(rod, cylinder).using(
             ea.RodCylinderContact,
             k=stiffness,
-            nu=np.sqrt(stiffness * node_mass),
+            nu=damping,
             velocity_damping_coefficient=1e3 * node_mass / dt,
-            friction_coefficient=obstacle.friction,
+            friction_coefficient=max(obstacle.friction, spec.friction),
         )
 
     @staticmethod

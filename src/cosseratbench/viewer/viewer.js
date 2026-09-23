@@ -203,7 +203,7 @@ function bounds() {
   // The starting scene: a run that ends with a rope falling away would otherwise shrink
   // everything that matters to a speck. Zooming out follows whatever leaves the frame.
   for (const entry of state.entries) for (const rod of entry.rods) include(rod.frames.subarray(0, rod.nNodes * 3));
-  if (state.variant.reference) include(state.variant.reference.flat());
+  for (const curve of state.variant.reference ?? []) include(curve.flat());
   for (const obstacle of state.variant.scenario.obstacles ?? []) {
     const reach = obstacle.radius + obstacle.length / 2;
     for (const axis of [0, 1, 2]) for (const sign of [-1, 1]) {
@@ -288,7 +288,7 @@ function render() {
 
 function recolor() {
   for (const entry of state.entries) entry.material.color.set(cssColor(entry.colorVar));
-  state.reference?.object.material.color.set(cssColor("--reference"));
+  state.reference?.material.color.set(cssColor("--reference"));
   buildGrid();
   invalidate();
 }
@@ -465,14 +465,18 @@ async function showVariant(variant) {
   }
 
   state.reference = null;
-  if (variant.reference) {
-    const geometry = new THREE.BufferGeometry().setFromPoints(variant.reference.map((p) => new THREE.Vector3(...p)));
+  if (variant.reference?.length) {
     // Drawn over the rods: the answer is a centreline, and would otherwise sit inside their tubes.
     const material = new THREE.LineBasicMaterial({ color: cssColor("--reference"), depthTest: false });
-    const object = new THREE.Line(geometry, material);
-    object.renderOrder = 1;
+    const object = new THREE.Group();
+    for (const curve of variant.reference) {
+      const geometry = new THREE.BufferGeometry().setFromPoints(curve.map((p) => new THREE.Vector3(...p)));
+      const line = new THREE.Line(geometry, material);
+      line.renderOrder = 1;
+      object.add(line);
+    }
     content.add(object);
-    state.reference = { object, shown: true };
+    state.reference = { object, material, shown: true };
   }
 
   state.duration = Math.max(variant.scenario.duration, ...state.entries.map((entry) => entry.times.at(-1)));

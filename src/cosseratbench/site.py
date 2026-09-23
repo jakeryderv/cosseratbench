@@ -23,6 +23,11 @@ from cosseratbench.trajectory import Trajectory
 _REFERENCE_POINTS = 201  # plenty for a smooth line, small in the manifest
 
 
+def _thinned(curve: np.ndarray) -> list:
+    keep = np.linspace(0, len(curve) - 1, min(len(curve), _REFERENCE_POINTS)).round()
+    return curve[keep.astype(int)].tolist()
+
+
 def _run(result_dir: Path, file_stem: Path, data_dir: Path) -> dict:
     run = json.loads((result_dir / "result.json").read_text())
     path = result_dir / "trajectory.npz"
@@ -42,9 +47,7 @@ def _run(result_dir: Path, file_stem: Path, data_dir: Path) -> dict:
 def _variant(variant_dir: Path, data_dir: Path) -> dict:
     variant = json.loads((variant_dir / "experiment.json").read_text())
     if variant["reference"] is not None:
-        curve = np.asarray(variant["reference"])
-        keep = np.linspace(0, len(curve) - 1, min(len(curve), _REFERENCE_POINTS)).round()
-        variant["reference"] = curve[keep.astype(int)].tolist()
+        variant["reference"] = [_thinned(np.asarray(c)) for c in variant["reference"]]
     stem = Path(variant["name"]) / variant_dir.name
     variant["key"] = variant_dir.name
     variant["runs"] = [

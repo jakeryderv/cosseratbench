@@ -184,6 +184,11 @@ def build(tension: float) -> Scenario:
         rods=tuple(_rod(level, i * SPACING, tension) for i, level in enumerate(LEVELS)),
         duration=DURATION,
         quasi_static=True,
+        # Buckling is measured while it is still small, but the run carries on, and the
+        # most twisted rod goes on to wrap onto itself into a plectoneme. Without
+        # self-contact it passes clean through itself there, so it is asked for; it
+        # costs about a third more and leaves the measurement untouched.
+        self_contact=True,
     )
 
 

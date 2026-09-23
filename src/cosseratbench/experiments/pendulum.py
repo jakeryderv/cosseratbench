@@ -194,6 +194,7 @@ def build(youngs_modulus: float) -> Scenario:
         ),
         duration=5.0,
         gravity=(0.0, 0.0, -GRAVITY),
+        self_contact=False,  # a nearly straight cable swinging 2 cm cannot reach itself
     )
 
 

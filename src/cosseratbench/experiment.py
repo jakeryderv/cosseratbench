@@ -10,15 +10,17 @@ from pathlib import Path
 
 import numpy as np
 
-from cosseratbench.scenario import Scenario
+from cosseratbench.metrics import segment_distance
+from cosseratbench.scenario import Scenario, neighbour_elements
 from cosseratbench.solver import Capability, Solver
 from cosseratbench.trajectory import Trajectory
 
 # Metrics see only the scenario and the trajectory, never the solver, so every
 # solver is judged by the same code.
 Metric = Callable[[Scenario, Trajectory], float]
-# The analytical answer as a curve [M, 3], where one exists, for drawing beside the solvers'.
-Reference = Callable[[Scenario], np.ndarray]
+# The analytical answer, for drawing beside the solvers': one curve [M, 3] per rod
+# it covers, in the scenario's rod order.
+Reference = Callable[[Scenario], tuple[np.ndarray, ...]]
 
 
 @dataclass(frozen=True)
@@ -86,7 +88,9 @@ class Experiment:
         directory.mkdir(parents=True, exist_ok=True)
         changes = dict(changes or {})
         scenario = self.scenario_for(**changes)
-        reference = None if self.reference is None else self.reference(scenario).tolist()
+        reference = (
+            None if self.reference is None else [c.tolist() for c in self.reference(scenario)]
+        )
         summary = {
             "name": self.name,
             "description": self.description,
@@ -213,8 +217,47 @@ def max_penetration(scenario: Scenario, trajectory: Trajectory) -> float:
     return worst
 
 
+def max_rod_overlap(scenario: Scenario, trajectory: Trajectory) -> float:
+    """Deepest any two rod segments overlap at any time, in radii of the thinner rod:
+    how far rods pass into each other, or into themselves.
+
+    Segments close to each other along one rod are skipped, as many as it takes to
+    bend back on itself, since those are neighbours rather than contact; it is the
+    rule PyElastica's self-contact uses. NaN when that leaves no pair to measure, so
+    nothing here could touch anything.
+    """
+    worst = float("nan")
+    rods = tuple(zip(scenario.rods, trajectory.positions))
+    for i, (rod, positions) in enumerate(rods):
+        for j in range(i, len(rods)):
+            other, other_positions = rods[j]
+            n, m = positions.shape[1] - 1, other_positions.shape[1] - 1
+            first, second = np.meshgrid(np.arange(n), np.arange(m), indexing="ij")
+            if j == i:
+                apart = neighbour_elements(rod.radius, rod.length / n)
+                keep = second - first >= apart
+                first, second = first[keep], second[keep]
+            else:
+                first, second = first.ravel(), second.ravel()
+            if not len(first):
+                continue
+            touching = rod.radius + other.radius
+            unit = min(rod.radius, other.radius)
+            for here, there in zip(positions, other_positions):
+                distance = segment_distance(
+                    here[first], here[first + 1], there[second], there[second + 1]
+                ).min()
+                depth = max(touching - float(distance), 0.0) / unit
+                worst = depth if np.isnan(worst) else max(worst, depth)
+    return worst
+
+
 # Observed on every completed run, whatever the experiment; NaN where it does not apply.
-OBSERVATIONS: Mapping[str, Metric] = {"max_strain": max_strain, "max_penetration": max_penetration}
+OBSERVATIONS: Mapping[str, Metric] = {
+    "max_strain": max_strain,
+    "max_penetration": max_penetration,
+    "max_rod_overlap": max_rod_overlap,
+}
 
 
 def run(

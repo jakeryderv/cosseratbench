@@ -28,9 +28,9 @@ make comparisons unfair in ways no one could see.
 
 - Contact quality is part of the comparison: a solver that lets rods sink, or
   imitates static friction loosely, shows it.
-- Rod-rod contact and self-contact are not yet part of scenarios; MuJoCo's adapter
-  keeps cable segments from touching each other, and PyElastica's rod-rod contact
-  has no friction.
+- Rod-rod contact and self-contact came later, in
+  [0011](0011-contact-between-rods.md), and follow the same principle: each
+  adapter chooses, and the benchmark measures what it got.
 - Penetration is measured at nodes. A straight segment between two nodes on a
   curved obstacle cuts inside it by a depth set by resolution alone; measuring
   there would hide the solver's contact stiffness behind geometry.

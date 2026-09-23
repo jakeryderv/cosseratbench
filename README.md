@@ -27,14 +27,15 @@ The scenarios it is growing toward:
 
 ## Status
 
-Early. Five experiments run against two solvers
+Early. Six experiments run against two solvers
 ([PyElastica](https://github.com/GazzolaLab/PyElastica) and
-[MuJoCo](https://mujoco.org)'s cable plugin): four validations scored against an
+[MuJoCo](https://mujoco.org)'s cable plugin): five validations scored against an
 analytical or high-accuracy numerical reference (catenary, cantilever, pendulum,
-twist) and one exploration of contact with friction (capstan). A web viewer plays
-the results back. Rod ends can be driven: moved, turned, or left free to slide
-under a load. Rods can touch fixed cylinders, with friction; contact between rods
-is not built yet.
+twist, crossing) and one exploration of contact with friction (capstan). A web
+viewer plays the results back. Rod ends can be driven: moved, turned, or left
+free to slide under a load. Rods touch fixed cylinders, each other, and
+themselves; only MuJoCo has friction between rods, so PyElastica reports an
+experiment that needs it as unsupported rather than running it frictionless.
 
 Known solver limit: MuJoCo cannot run the twist experiment. A cable clamped at
 both ends diverges once it holds about 5 rad of twist; see

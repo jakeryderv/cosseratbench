@@ -22,7 +22,7 @@ def test_experiment_save_is_plain_json_a_reader_can_interpret(tmp_path):
     rod = saved["scenario"]["rods"][0]
     assert rod["start"] == EndCondition.PINNED.value
     assert saved["rod_lengths"] == [pytest.approx(1.0, rel=1e-5)]
-    assert np.asarray(saved["reference"]).shape[1] == 3
+    assert np.asarray(saved["reference"]).shape[1:] == (2001, 3)  # one curve per rod it covers
 
 
 def test_build_writes_the_viewer_a_manifest_and_browser_readable_trajectories(tmp_path):
@@ -65,8 +65,9 @@ def test_build_shortens_a_long_reference_curve(tmp_path):
     site.build(results, out)
 
     manifest = json.loads((out / "data" / "manifest.json").read_text())
-    reference = np.asarray(manifest["experiments"][0]["variants"][0]["reference"])
-    assert len(reference) == 201
+    curves = manifest["experiments"][0]["variants"][0]["reference"]
+    reference = np.asarray(curves[0])
+    assert len(curves) == 1 and len(reference) == 201
     np.testing.assert_allclose(reference[[0, -1], 0], [0.0, 0.8], atol=1e-9)  # ends survive
 
 

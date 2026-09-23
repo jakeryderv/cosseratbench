@@ -276,3 +276,80 @@ def test_penetration_is_how_deep_nodes_sink_into_obstacles():
     trajectory = Trajectory(np.array([0.0, 1.0]), (positions,))
     assert max_penetration(touching, trajectory) == pytest.approx(0.5)
     assert math.isnan(max_penetration(Scenario(rods=(rod,), duration=1.0), trajectory))
+
+
+def test_segment_distance_finds_the_closest_approach_of_two_segments():
+    from cosseratbench.metrics import segment_distance
+
+    rng = np.random.default_rng(0)
+
+    def sampled(a0, a1, b0, b1, n=600):
+        t = np.linspace(0.0, 1.0, n)[:, None]
+        first, second = a0 + t * (a1 - a0), b0 + t * (b1 - b0)
+        return np.linalg.norm(first[:, None] - second[None, :], axis=2).min()
+
+    for trial in range(60):
+        a0, a1, b0, b1 = rng.normal(size=(4, 3))
+        if trial % 3 == 0:  # parallel, where the closest points are not unique
+            b1 = b0 + (a1 - a0) * rng.normal()
+        if trial % 7 == 0:  # a segment of no length
+            a1 = a0.copy()
+        assert segment_distance(a0, a1, b0, b1) == pytest.approx(sampled(a0, a1, b0, b1), abs=1e-4)
+
+    # Crossing at a right angle, one above the other: the gap is the height between them.
+    assert segment_distance(
+        np.array([-1.0, 0.0, 0.0]),
+        np.array([1.0, 0.0, 0.0]),
+        np.array([0.0, -1.0, 0.3]),
+        np.array([0.0, 1.0, 0.3]),
+    ) == pytest.approx(0.3)
+
+
+def test_overlap_is_how_far_rods_pass_into_each_other():
+    from cosseratbench.experiment import max_rod_overlap
+
+    def crossed(height):
+        along = np.array([[-1.0, 0.0, 0.0], [0.0, 0.0, 0.0], [1.0, 0.0, 0.0]])
+        across = np.array([[0.0, -1.0, height], [0.0, 0.0, height], [0.0, 1.0, height]])
+        return along, across
+
+    rod = Rod(((-1, 0, 0), (1, 0, 0)), 0.1, RUBBER)
+    other = Rod(((0, -1, 0.5), (0, 1, 0.5)), 0.1, RUBBER)
+    scenario = Scenario(rods=(rod, other), duration=1.0)
+    clear, touching, sunk = (crossed(h) for h in (0.5, 0.2, 0.15))
+    frames = Trajectory(
+        np.arange(3.0),
+        (np.stack([clear[0], touching[0], sunk[0]]), np.stack([clear[1], touching[1], sunk[1]])),
+    )
+    # They touch at 0.2 apart and the deepest frame is 0.05 in, half a radius.
+    assert max_rod_overlap(scenario, frames) == pytest.approx(0.5)
+
+
+def test_overlap_ignores_the_neighbours_a_rod_cannot_bend_back_onto():
+    from cosseratbench.experiment import max_rod_overlap
+
+    # A straight rod, too thick to double back within its own length: nothing to report.
+    rod = Rod(((0, 0, 0), (1, 0, 0)), 0.3, RUBBER)
+    positions = rod.nodes(6)[None, :, :]
+    scenario = Scenario(rods=(rod,), duration=1.0)
+    assert math.isnan(max_rod_overlap(scenario, Trajectory(np.array([0.0]), (positions,))))
+
+    # Folded in half, the two halves lie on top of each other and it is reported.
+    thin = Rod(((0, 0, 0), (1, 0, 0)), 0.02, RUBBER)
+    folded = np.array(
+        [[x, 0.0, 0.0] for x in np.linspace(0, 0.5, 11)]
+        + [[x, 0.0, 0.01] for x in np.linspace(0.45, 0.0, 10)]
+    )
+    scenario = Scenario(rods=(thin,), duration=1.0)
+    overlap = max_rod_overlap(scenario, Trajectory(np.array([0.0]), (folded[None, :, :],)))
+    assert overlap == pytest.approx((0.04 - 0.01) / 0.02, rel=1e-6)
+
+
+def test_a_scenario_says_whether_its_rods_can_reach_themselves():
+    from cosseratbench.scenario import neighbour_elements
+
+    assert Scenario(rods=(), duration=1.0).self_contact is True
+    # A rod in coarse pieces can only touch itself two elements or more apart; one cut
+    # finer than its own thickness needs a longer stretch to bend back on.
+    assert neighbour_elements(radius=0.01, segment_length=1.0) == 2
+    assert neighbour_elements(radius=0.01, segment_length=0.005) == 7
