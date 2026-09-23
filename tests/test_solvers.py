@@ -166,6 +166,8 @@ def test_a_sliding_end_slides_under_a_pull(solver):
         if "stretch" in {c.value for c in solver.capabilities}
         else 0.0
     )
+    if solver.name == "dismech":
+        stretch *= 19 / 20  # its clamp holds the first element rigid; see the findings
     assert tip[0] - 1.0 == pytest.approx(stretch, rel=0.01, abs=2e-6)
     np.testing.assert_allclose(tip[1:], 0.0, atol=1e-9)
 

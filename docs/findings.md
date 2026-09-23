@@ -188,6 +188,13 @@ passes the same derivative twice where the sliding branch passes two different
 ones, but correcting that does not make it converge. So a rope landing on a floor
 with friction, the pile experiment, is reported as diverged for dismech.
 
+**A clamped element does not stretch.** *Discretisation.* dismech clamps an end
+by holding two nodes and the edge between them, so that element is rigid in
+stretch as well as in bending. A rod of 20 elements pulled from a clamp stretches
+19/20 as far as it should (0.00302 m against 0.00318), every other element at
+exactly the right strain. It is the axial counterpart of the rigid clamped element
+that makes every solver's cantilever converge at first order.
+
 **Crossed ropes drift out of symmetry after settling.** *Open question.* On the
 crossing experiment (51 elements) dismech's ropes settle at the right gap by 2 s,
 then around 3.5 s the lower rope's middle drifts 3.5 mm out of its plane, growing
