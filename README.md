@@ -27,16 +27,19 @@ The scenarios it is growing toward:
 
 ## Status
 
-Early. Seven experiments run against two solvers
-([PyElastica](https://github.com/GazzolaLab/PyElastica) and
-[MuJoCo](https://mujoco.org)'s cable plugin): five validations scored against an
-analytical or high-accuracy numerical reference (catenary, cantilever, pendulum,
-twist, crossing) and two explorations without one, of contact with friction
-(capstan) and of a rope heaping up on a floor in dense self-contact (pile). A web
-viewer plays the results back. Rod ends can be driven: moved, turned, or left
-free to slide under a load. Rods touch fixed cylinders and planes, each other, and
-themselves; only MuJoCo has friction between rods, so PyElastica reports an
-experiment that needs it as unsupported rather than running it frictionless.
+Early. Seven experiments run against three solvers
+([PyElastica](https://github.com/GazzolaLab/PyElastica),
+[MuJoCo](https://mujoco.org)'s cable plugin, and
+[dismech-python](https://github.com/StructuresComp/dismech-python)'s discrete
+elastic rods): five validations scored against an analytical or high-accuracy
+numerical reference (catenary, cantilever, pendulum, twist, crossing) and two
+explorations without one, of contact with friction (capstan) and of a rope
+heaping up on a floor in dense self-contact (pile). A web viewer plays the
+results back. Rod ends can be driven: moved, turned, or left free to slide under
+a load. Rods touch fixed cylinders and planes, each other, and themselves. What a
+solver's model lacks (friction between rods in PyElastica, cylinders in dismech)
+makes an experiment that needs it unsupported for that solver rather than run
+with something else.
 
 Known solver limit: MuJoCo cannot run the twist experiment. A cable clamped at
 both ends diverges once it holds about 5 rad of twist; see
@@ -45,7 +48,8 @@ both ends diverges once it holds about 5 rad of twist; see
 ## Usage
 
 ```sh
-uv sync --all-extras        # from a clone; installs both solver backends
+uv sync --all-extras        # from a clone; installs PyElastica and MuJoCo
+uv sync --all-extras --group dismech   # and dismech-python, from git (Python 3.13+, GPL-3.0)
 uv run cosseratbench list
 uv run cosseratbench run    # every experiment x every solver, saved under results/
 uv run cosseratbench run catenary --solver pyelastica --n-elements 100

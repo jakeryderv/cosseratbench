@@ -201,8 +201,16 @@ def _stable_time_step(rod: Rod, n_elements: int) -> float:
 
 class MuJoCoSolver:
     name = "mujoco"
-    # Segments neither stretch nor shear; they do collide, with friction.
-    capabilities = frozenset({Capability.ROD_CONTACT, Capability.ROD_FRICTION})
+    # Segments neither stretch nor shear; they do collide, with friction, with each
+    # other and with fixed geoms of any shape.
+    capabilities = frozenset(
+        {
+            Capability.ROD_CONTACT,
+            Capability.ROD_FRICTION,
+            Capability.CYLINDER_CONTACT,
+            Capability.PLANE_CONTACT,
+        }
+    )
 
     def __init__(self, time_step_scale: float = 1.0) -> None:
         # Half the estimated stability limit, times any scale asked for.

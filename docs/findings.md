@@ -155,6 +155,52 @@ with a cylinder is at nodes and does not do this.
 **First runs include JIT compilation.** *Cost.* Numba compilation added about 14 s
 to a first run against 0.5 s warm. The runner times runs after a short warm-up.
 
+## dismech
+
+**Gravity is applied twice.** *Solver bug.* At the pinned commit (3d83a30),
+dismech-python subtracts gravity from the residual once before the contact
+forces and once after, so a free rod falls at exactly 2 g: 2.44 m in half a
+second against 1.23. Its pendulum swung 29% off period. The adapter puts one
+gravity back, and a free rod falls as it should.
+
+**The shape it is built in is stress-free.** *Adapter mistake.* dismech takes
+every spring's natural strain (stretch, curvature, twist) from the state its
+time stepper is constructed with. The adapter first built each rod
+unstretched but bent along its starting shape, as it builds PyElastica's, which
+always takes a straight rest shape whatever it is given. In dismech that made
+the catenary's starting arc the cable's natural curvature: its bend angle rose
+toward each pin instead of falling to zero, the sag came out 0.4% shallow at
+every resolution, and the error scaled with bending stiffness over weight. Built
+straight and unstretched and only then moved, the cable shows the same
+moment-free boundary layer at its pins as PyElastica (bend angles within 0.01°)
+and the sag is within 0.018% of the reference. Built after the move, the stepper
+had also made the pendulum's hanging stretch natural.
+
+**Friction on the floor cannot hold anything still.** *Solver bug.* At the pinned
+commit, dismech's floor friction fails in two ways. A rod only partly on the floor
+raises an IndexError: the contact force is listed for the touching nodes and the
+friction pairs it with every node's velocity. The adapter corrects that. Then,
+whenever friction must stick, the Newton solve does not converge in 50
+iterations, on the very first step: a rod on a 20° slope with mu = 0.5 (which
+should hold) fails at t = 0 whatever the stick-slip velocity tolerance (5e-5 to
+1e-2 m/s), while with mu = 0.1 it slides as it should. Its sticking branch also
+passes the same derivative twice where the sliding branch passes two different
+ones, but correcting that does not make it converge. So a rope landing on a floor
+with friction, the pile experiment, is reported as diverged for dismech.
+
+**Crossed ropes drift out of symmetry after settling.** *Open question.* On the
+crossing experiment (51 elements) dismech's ropes settle at the right gap by 2 s,
+then around 3.5 s the lower rope's middle drifts 3.5 mm out of its plane, growing
+exponentially, and around 7.5 s the upper rope's drifts 2.6 mm; the run ends still
+moving (settling residual 9e-3) with lift error 2.6% and shape error 6.7e-3.
+PyElastica holds the lower rope in plane to 1e-15. Whether it depends on the time
+step, the contact stiffness the adapter picks, or dismech's contact model is not
+yet known.
+
+**Its pendulum matches PyElastica's.** *Solver behaviour.* With Newmark-beta,
+which conserves energy, the pendulum's period is 1.4e-4 off the reference at
+50 elements, as PyElastica's is, and its amplitude changes by 9e-6 over the run.
+
 ## References
 
 **The catenary's reference ignores bending, which matters on slack spans.**

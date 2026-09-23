@@ -93,9 +93,16 @@ def _stable_time_step(rod: Rod, n_elements: int) -> float:
 
 class PyElasticaSolver:
     name = "pyelastica"
+    # PyElastica's rod-rod and self-contact are frictionless: no ROD_FRICTION.
     capabilities = frozenset(
-        {Capability.STRETCH, Capability.SHEAR, Capability.ROD_CONTACT}
-    )  # PyElastica's rod-rod and self-contact are frictionless: no ROD_FRICTION
+        {
+            Capability.STRETCH,
+            Capability.SHEAR,
+            Capability.ROD_CONTACT,
+            Capability.CYLINDER_CONTACT,
+            Capability.PLANE_CONTACT,
+        }
+    )
 
     def __init__(self, time_step_scale: float = 1.0) -> None:
         # Half the estimated stability limit, times any scale asked for.

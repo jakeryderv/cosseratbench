@@ -25,6 +25,7 @@ cosseratbench = "cosseratbench.cli:main"
 [project.entry-points."cosseratbench.solvers"]
 pyelastica = "cosseratbench.solvers.pyelastica:PyElasticaSolver"
 mujoco = "cosseratbench.solvers.mujoco:MuJoCoSolver"
+dismech = "cosseratbench.solvers.dismech:DismechSolver"
 
 [project.entry-points."cosseratbench.experiments"]
 catenary = "cosseratbench.experiments.catenary:catenary"
@@ -37,6 +38,13 @@ pile = "cosseratbench.experiments.pile:pile"
 
 [dependency-groups]
 dev = ["pytest>=8", "ruff>=0.6"]
+# dismech-python is not on PyPI and is GPL-3.0, so it is not an extra of this package:
+# install this group to run its adapter (Python 3.13 or later). It imports IPython
+# without declaring it.
+dismech = [
+    "dismech-python @ git+https://github.com/StructuresComp/dismech-python.git@3d83a30066461da3407e7f08aeaf85f16ae8ea12 ; python_full_version >= '3.13'",
+    "ipython>=8 ; python_full_version >= '3.13'",
+]
 
 [build-system]
 requires = ["uv_build>=0.12.11,<0.13.0"]

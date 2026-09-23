@@ -264,6 +264,14 @@ OBSERVATIONS: Mapping[str, Metric] = {
 }
 
 
+def _needs(scenario: Scenario) -> frozenset[Capability]:
+    """What the scenario itself requires of a solver, beyond what the experiment says."""
+    return frozenset(
+        Capability.CYLINDER_CONTACT if isinstance(o, Cylinder) else Capability.PLANE_CONTACT
+        for o in scenario.obstacles
+    )
+
+
 def run(
     experiment: Experiment,
     solver: Solver,
@@ -286,7 +294,7 @@ def run(
         "values": values,
         "options": dict(options or {}),
     }
-    missing = experiment.requires - solver.capabilities
+    missing = (experiment.requires | _needs(scenario)) - solver.capabilities
     if missing:
         return Result(**identity, missing=tuple(sorted(c.value for c in missing)))
 
@@ -299,6 +307,8 @@ def run(
         trajectory = solver.run(scenario, n_elements=n_elements, n_frames=n_frames)
     except FloatingPointError as error:
         return Result(**identity, failure=str(error), diverged_at=getattr(error, "time", None))
+    except NotImplementedError as error:  # something in this scenario is outside its model
+        return Result(**identity, missing=(str(error),))
     wall_time = time.perf_counter() - started
     if divergence := _divergence(trajectory):
         failure, when = divergence
