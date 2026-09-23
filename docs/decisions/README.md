@@ -20,3 +20,4 @@ replaced, the old record stays and says what replaced it.
 | [0012](0012-scipy-for-references.md) | SciPy for references that have no closed form | Accepted |
 | [0013](0013-trajectories-carry-orientation.md) | Trajectories carry orientation | Accepted |
 | [0014](0014-planes-and-a-pile-without-a-reference.md) | Planes to rest on, and a pile without a reference | Accepted |
+| [0015](0015-a-third-solver.md) | A third solver, and which | Accepted |

@@ -25,13 +25,31 @@ from cosseratbench.metrics import twist_angles
 pytestmark = pytest.mark.slow
 
 # MuJoCo's cable cannot stretch, and stretch deepens this catenary's sag by ~1.2%.
-CATENARY_SAG_TOLERANCE = {"pyelastica": 2e-3, "mujoco": 2e-2}
+CATENARY_SAG_TOLERANCE = {"pyelastica": 2e-3, "mujoco": 2e-2, "dismech": 2e-3}
 
 
-@pytest.fixture(params=["pyelastica", "mujoco"])
+@pytest.fixture(params=["pyelastica", "mujoco", "dismech"])
 def solver(request):
     pytest.importorskip({"pyelastica": "elastica"}.get(request.param, request.param))
     return registry.load_solver(request.param)
+
+
+def completed(result):
+    """The result, unless the solver could not run it, which is a fact about the
+    solver rather than a failure of the test."""
+    if not result.supported:
+        pytest.skip(f"{result.solver} cannot run this: needs {', '.join(result.missing)}")
+    return result
+
+
+# dismech's floor friction cannot hold anything still: Newton fails on the first step
+# in which it must stick. Strict, so the test says so once it is fixed; see the findings.
+FLOOR_FRICTION_STICKS = "dismech's floor friction fails to converge when it must stick"
+
+
+def known_failure(request, solver, names, reason):
+    if solver.name in names:
+        request.applymarker(pytest.mark.xfail(reason=reason, strict=True))
 
 
 def test_catenary(solver):
@@ -148,6 +166,8 @@ def test_a_sliding_end_slides_under_a_pull(solver):
         if "stretch" in {c.value for c in solver.capabilities}
         else 0.0
     )
+    if solver.name == "dismech":
+        stretch *= 19 / 20  # its clamp holds the first element rigid; see the findings
     assert tip[0] - 1.0 == pytest.approx(stretch, rel=0.01, abs=2e-6)
     np.testing.assert_allclose(tip[1:], 0.0, atol=1e-9)
 
@@ -183,6 +203,8 @@ def test_directors_show_the_twist_a_turned_clamp_puts_in(solver):
 def test_twist_buckles_near_greenhill(solver):
     if solver.name == "mujoco":
         pytest.skip("MuJoCo's welds diverge here; see the note in its adapter")
+    if solver.name == "dismech":
+        pytest.skip("hours per run: six rods in contact, a dense Newton solve every step")
     result = run(registry.load_experiment("twist"), solver)
     assert result.failure is None
     # Measured at the default 50 elements: 1.1%; the method itself is good to ~0.5%.
@@ -201,7 +223,9 @@ def test_settling_damping_lets_a_free_rod_fall_at_its_terminal_speed(solver):
 
 @pytest.mark.parametrize("overhang, slides", [(0.5, False), (1.5, True)])
 def test_capstan_rope_holds_or_slides_as_friction_allows(solver, overhang, slides):
-    result = run(registry.load_experiment("capstan"), solver, values={"overhang": overhang})
+    result = completed(
+        run(registry.load_experiment("capstan"), solver, values={"overhang": overhang})
+    )
     assert result.outcome == "completed"
     if slides:
         assert result.metrics["slide"] > 0.1
@@ -229,8 +253,10 @@ def test_mujoco_frames_a_cable_that_starts_straight_then_curves():
     assert max(turns) < 0.2
 
 
-def test_a_rod_dropped_on_a_floor_rests_on_it(solver):
+def test_a_rod_dropped_on_a_floor_rests_on_it(solver, request):
     from cosseratbench import Plane
+
+    known_failure(request, solver, {"dismech"}, FLOOR_FRICTION_STICKS)
     from cosseratbench.experiment import max_penetration
 
     rod = Rod(((-0.25, 0, 0.05), (0.25, 0, 0.05)), 0.005, Material(1e6, 1e6 / 3.0, 1000.0))
@@ -250,20 +276,20 @@ def test_a_rod_dropped_on_a_floor_rests_on_it(solver):
 
 
 @pytest.mark.parametrize("friction, holds", [(0.5, True), (0.1, False)])
-def test_a_rod_on_a_slope_holds_or_slides_as_friction_allows(solver, friction, holds):
+def test_a_rod_on_a_slope_holds_or_slides_as_friction_allows(solver, request, friction, holds):
     from cosseratbench import Plane
 
+    if holds:
+        known_failure(request, solver, {"dismech"}, FLOOR_FRICTION_STICKS)
+    # A level floor under gravity tilted 20 degrees: a slope, as every solver can have it.
     angle = np.radians(20.0)  # tan 20 degrees is 0.36: between the two coefficients
-    normal = np.array([np.sin(angle), 0.0, np.cos(angle)])
-    along = np.array([np.cos(angle), 0.0, -np.sin(angle)])
-    start = 0.005 * normal  # resting on the slope
-    rod = Rod((tuple(start), tuple(start + 0.5 * along)), 0.005, Material(1e6, 1e6 / 3.0, 1000.0))
-    slope = Plane(point=(0, 0, 0), normal=tuple(normal), friction=friction)
+    rod = Rod(((0, 0, 0.005), (0.5, 0, 0.005)), 0.005, Material(1e6, 1e6 / 3.0, 1000.0))
+    floor = Plane(point=(0, 0, 0), normal=(0, 0, 1), friction=friction)
     scenario = Scenario(
         rods=(rod,),
-        obstacles=(slope,),
+        obstacles=(floor,),
         duration=1.5,
-        gravity=(0.0, 0.0, -9.81),
+        gravity=(9.81 * np.sin(angle), 0.0, -9.81 * np.cos(angle)),
         quasi_static=True,
         self_contact=False,
     )
@@ -272,9 +298,10 @@ def test_a_rod_on_a_slope_holds_or_slides_as_friction_allows(solver, friction, h
     assert moved < 1e-3 if holds else moved > 0.2
 
 
-def test_a_rope_fed_onto_a_floor_coils_on_it(solver):
+def test_a_rope_fed_onto_a_floor_coils_on_it(solver, request):
     """The pile experiment at a coarse resolution: the rope lands, does not pass
     through itself, and coils in three dimensions rather than lying in a line."""
+    known_failure(request, solver, {"dismech"}, FLOOR_FRICTION_STICKS)
     result = run(registry.load_experiment("pile"), solver, n_elements=50, n_frames=41)
     assert result.outcome == "completed", result.failure
     # PyElastica's plane contact acts at element centres, so the rope's end sinks half

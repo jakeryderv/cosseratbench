@@ -17,6 +17,10 @@ class Capability(Enum):
     SHEAR = "shear"
     ROD_CONTACT = "rod_contact"  # rods do not pass through each other, or themselves
     ROD_FRICTION = "rod_friction"  # and they resist sliding where they touch
+    # Contact with each kind of fixed obstacle. A scenario that has one requires it,
+    # whether or not the experiment says so.
+    CYLINDER_CONTACT = "cylinder_contact"
+    PLANE_CONTACT = "plane_contact"
 
 
 class Diverged(FloatingPointError):
@@ -44,5 +48,10 @@ class Solver(Protocol):
         Returns ``n_frames`` evenly spaced frames, the first at t=0 and the last
         at ``scenario.duration``. Everything else about the numerics (time step,
         integrator, contact and damping parameters) is the adapter's choice.
+
+        A scenario may ask for something within the adapter's capabilities but
+        outside its model all the same (a floor that is not level, say). The
+        adapter then raises ``NotImplementedError`` saying what, and the run is
+        reported as unsupported rather than failed.
         """
         ...

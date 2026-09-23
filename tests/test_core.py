@@ -229,6 +229,31 @@ def test_run_reports_missing_capabilities_without_running():
     assert result.trajectory is None
 
 
+def test_a_scenario_with_an_obstacle_requires_contact_with_that_shape():
+    from cosseratbench import Cylinder, Plane
+
+    floor = Plane(point=(0, 0, -1), normal=(0, 0, 1))
+    on_floor = experiment(
+        build=lambda: Scenario(rods=(STRAIGHT,), obstacles=(floor,), duration=1.0)
+    )
+    assert run(on_floor, FakeSolver()).missing == ("plane_contact",)
+    can = FakeSolver(capabilities=frozenset({Capability.PLANE_CONTACT}))
+    assert run(on_floor, can, n_elements=4).outcome == "completed"
+    post = Cylinder(center=(0, 0, -1), axis=(0, 0, 1), radius=0.1, length=1.0)
+    by_post = experiment(build=lambda: Scenario(rods=(STRAIGHT,), obstacles=(post,), duration=1.0))
+    assert run(by_post, can).missing == ("cylinder_contact",)
+
+
+def test_a_solver_can_say_a_scenario_is_outside_its_model():
+    class Level(FakeSolver):
+        def run(self, scenario, *, n_elements, n_frames):
+            raise NotImplementedError("a floor that is not level")
+
+    result = run(experiment(), Level(), n_elements=4)
+    assert result.outcome == "unsupported"
+    assert result.missing == ("a floor that is not level",)
+
+
 def test_run_flags_a_blown_up_trajectory_instead_of_scoring_it():
     result = run(experiment(), FakeSolver(stretch=50.0), n_elements=4)
     assert "stretched" in result.failure
