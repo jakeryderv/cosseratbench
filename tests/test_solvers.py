@@ -229,6 +229,65 @@ def test_mujoco_frames_a_cable_that_starts_straight_then_curves():
     assert max(turns) < 0.2
 
 
+def test_a_rod_dropped_on_a_floor_rests_on_it(solver):
+    from cosseratbench import Plane
+    from cosseratbench.experiment import max_penetration
+
+    rod = Rod(((-0.25, 0, 0.05), (0.25, 0, 0.05)), 0.005, Material(1e6, 1e6 / 3.0, 1000.0))
+    floor = Plane(point=(0, 0, 0), normal=(0, 0, 1), friction=0.3)
+    scenario = Scenario(
+        rods=(rod,),
+        obstacles=(floor,),
+        duration=1.5,
+        gravity=(0.0, 0.0, -9.81),
+        quasi_static=True,
+        self_contact=False,
+    )
+    trajectory = solver.run(scenario, n_elements=20, n_frames=16)
+    heights = trajectory.positions[0][-1, :, 2]
+    np.testing.assert_allclose(heights, 0.005, atol=2e-5)  # one radius up, all along
+    assert max_penetration(scenario, trajectory) < 0.01
+
+
+@pytest.mark.parametrize("friction, holds", [(0.5, True), (0.1, False)])
+def test_a_rod_on_a_slope_holds_or_slides_as_friction_allows(solver, friction, holds):
+    from cosseratbench import Plane
+
+    angle = np.radians(20.0)  # tan 20 degrees is 0.36: between the two coefficients
+    normal = np.array([np.sin(angle), 0.0, np.cos(angle)])
+    along = np.array([np.cos(angle), 0.0, -np.sin(angle)])
+    start = 0.005 * normal  # resting on the slope
+    rod = Rod((tuple(start), tuple(start + 0.5 * along)), 0.005, Material(1e6, 1e6 / 3.0, 1000.0))
+    slope = Plane(point=(0, 0, 0), normal=tuple(normal), friction=friction)
+    scenario = Scenario(
+        rods=(rod,),
+        obstacles=(slope,),
+        duration=1.5,
+        gravity=(0.0, 0.0, -9.81),
+        quasi_static=True,
+        self_contact=False,
+    )
+    trajectory = solver.run(scenario, n_elements=20, n_frames=16)
+    moved = np.linalg.norm(trajectory.positions[0][-1] - trajectory.positions[0][0], axis=1).max()
+    assert moved < 1e-3 if holds else moved > 0.2
+
+
+def test_a_rope_fed_onto_a_floor_coils_on_it(solver):
+    """The pile experiment at a coarse resolution: the rope lands, does not pass
+    through itself, and coils in three dimensions rather than lying in a line."""
+    result = run(registry.load_experiment("pile"), solver, n_elements=50, n_frames=41)
+    assert result.outcome == "completed", result.failure
+    # PyElastica's plane contact acts at element centres, so the rope's end sinks half
+    # an element (three diameters here) into the floor on landing; see the findings.
+    assert result.observations["max_penetration"] < {"pyelastica": 8.0, "mujoco": 0.5}[solver.name]
+    assert result.observations["max_rod_overlap"] < 1.0
+    assert result.metrics["contacts"] >= 1
+    assert result.metrics["footprint"] < 0.3
+    final = result.trajectory.positions[0][-1]
+    assert np.ptp(final[:, 0]) > 0.05 and np.ptp(final[:, 1]) > 0.05  # coiled, not folded flat
+    assert (final[:, 2] < 0.05).mean() > 0.8  # and nearly all of it is down on the floor
+
+
 def test_a_rod_dropped_across_another_lands_on_it_instead_of_through_it(solver):
     material = Material(youngs_modulus=1e6, shear_modulus=3e5, density=1000.0)
     held = Rod(

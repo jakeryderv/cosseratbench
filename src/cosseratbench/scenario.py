@@ -8,7 +8,7 @@ to solver adapters. All quantities are SI.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 import numpy as np
@@ -270,6 +270,7 @@ class Cylinder:
     radius: float  # m
     length: float  # m, centred on ``center``
     friction: float = 0.0
+    kind: str = field(default="cylinder", init=False)  # names the shape where it is saved
 
     @property
     def unit_axis(self) -> np.ndarray:
@@ -278,11 +279,31 @@ class Cylinder:
 
 
 @dataclass(frozen=True)
+class Plane:
+    """A fixed, rigid, unbounded plane that rods rest on and slide over: a floor or a
+    wall. Rods stay on the side ``normal`` points to. ``friction`` is as for a
+    :class:`Cylinder`."""
+
+    point: Vec3  # m, any point on the plane
+    normal: Vec3  # points toward the side the rods are on
+    friction: float = 0.0
+    kind: str = field(default="plane", init=False)
+
+    @property
+    def unit_normal(self) -> np.ndarray:
+        normal = np.asarray(self.normal, dtype=float)
+        return normal / np.linalg.norm(normal)
+
+
+Obstacle = Cylinder | Plane
+
+
+@dataclass(frozen=True)
 class Scenario:
     rods: tuple[Rod, ...]
     duration: float  # s
     gravity: Vec3 = (0.0, 0.0, 0.0)  # m/s^2
-    obstacles: tuple[Cylinder, ...] = ()
+    obstacles: tuple[Obstacle, ...] = ()
     # Whether a rod here can reach itself. A taut cable between two supports cannot,
     # and saying so saves a solver looking: finding self-contact costs more than the
     # rest of the step. It describes the scenario, not how contact is modelled, and

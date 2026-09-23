@@ -27,13 +27,14 @@ The scenarios it is growing toward:
 
 ## Status
 
-Early. Six experiments run against two solvers
+Early. Seven experiments run against two solvers
 ([PyElastica](https://github.com/GazzolaLab/PyElastica) and
 [MuJoCo](https://mujoco.org)'s cable plugin): five validations scored against an
 analytical or high-accuracy numerical reference (catenary, cantilever, pendulum,
-twist, crossing) and one exploration of contact with friction (capstan). A web
+twist, crossing) and two explorations without one, of contact with friction
+(capstan) and of a rope heaping up on a floor in dense self-contact (pile). A web
 viewer plays the results back. Rod ends can be driven: moved, turned, or left
-free to slide under a load. Rods touch fixed cylinders, each other, and
+free to slide under a load. Rods touch fixed cylinders and planes, each other, and
 themselves; only MuJoCo has friction between rods, so PyElastica reports an
 experiment that needs it as unsupported rather than running it frictionless.
 

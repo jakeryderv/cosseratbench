@@ -9,10 +9,11 @@ import mujoco
 import numpy as np
 
 from cosseratbench.scenario import (
-    Cylinder,
     End,
     EndCondition,
     Motion,
+    Obstacle,
+    Plane,
     Rod,
     Scenario,
     neighbour_elements,
@@ -45,9 +46,7 @@ def _rod_groups(index: int, self_contact: bool) -> str:
     return f'contype="{bit}" conaffinity="{_ALL_GROUPS - bit}"'
 
 
-def _obstacle_xml(obstacle: Cylinder, dt: float) -> str:
-    half = obstacle.unit_axis * obstacle.length / 2
-    ends = np.concatenate([np.asarray(obstacle.center) - half, np.asarray(obstacle.center) + half])
+def _obstacle_xml(obstacle: Obstacle, dt: float) -> str:
     # Where two geoms have friction of their own MuJoCo takes the larger, which is the
     # rule the scenario states for a rod against an obstacle.
     # The model uses elliptic friction cones: MuJoCo's default pyramid allows as little as
@@ -55,10 +54,17 @@ def _obstacle_xml(obstacle: Cylinder, dt: float) -> str:
     # rope slide off at 95% of the overhang that holds.
     # Contact is as stiff as the step allows, like the welds: at MuJoCo's default a rope
     # sank 40% of its radius into the capstan's cylinder; at this, 8%.
+    contact = f'friction="{obstacle.friction!r} 0 0" condim="3" solref="{2.0 * dt!r} 1"'
+    if isinstance(obstacle, Plane):
+        # A plane geom is unbounded (zero half-sizes) and collides on its +z side.
+        return f"""
+    <geom type="plane" pos="{_numbers(obstacle.point)}" zaxis="{_numbers(obstacle.unit_normal)}"
+          size="0 0 1" {contact} {_OBSTACLE_GROUP}/>"""
+    half = obstacle.unit_axis * obstacle.length / 2
+    ends = np.concatenate([np.asarray(obstacle.center) - half, np.asarray(obstacle.center) + half])
     return f"""
     <geom type="cylinder" fromto="{_numbers(ends)}" size="{obstacle.radius!r}"
-          friction="{obstacle.friction!r} 0 0" condim="3" solref="{2.0 * dt!r} 1"
-          {_OBSTACLE_GROUP}/>"""
+          {contact} {_OBSTACLE_GROUP}/>"""
 
 
 def _defined_first_frame(nodes: np.ndarray, normal: np.ndarray) -> np.ndarray:
@@ -206,7 +212,7 @@ class MuJoCoSolver:
         frame_interval = scenario.duration / (n_frames - 1)
         limit = self.time_step_safety * min(_stable_time_step(r, n_elements) for r in scenario.rods)
         steps_per_frame = math.ceil(frame_interval / limit)
-        dt = frame_interval / steps_per_frame
+        dt = float(frame_interval / steps_per_frame)  # a NumPy float's repr is not MJCF
 
         parts = [
             _rod_xml(i, rod, n_elements, dt, scenario.self_contact)
