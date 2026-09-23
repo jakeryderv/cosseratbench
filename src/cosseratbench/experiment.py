@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 
 from cosseratbench.metrics import segment_distance
-from cosseratbench.scenario import Scenario, neighbour_elements
+from cosseratbench.scenario import Cylinder, Scenario, neighbour_elements
 from cosseratbench.solver import Capability, Solver
 from cosseratbench.trajectory import Trajectory
 
@@ -206,13 +206,17 @@ def max_penetration(scenario: Scenario, trajectory: Trajectory) -> float:
         return float("nan")
     worst = 0.0
     for rod, positions in zip(scenario.rods, trajectory.positions):
-        for cylinder in scenario.obstacles:
-            axis = cylinder.unit_axis
-            offset = positions - np.asarray(cylinder.center)
-            along = offset @ axis
-            across = np.linalg.norm(offset - along[..., None] * axis, axis=2)
-            within = np.abs(along) <= cylinder.length / 2
-            depth = np.where(within, cylinder.radius + rod.radius - across, 0.0)
+        for obstacle in scenario.obstacles:
+            if isinstance(obstacle, Cylinder):
+                axis = obstacle.unit_axis
+                offset = positions - np.asarray(obstacle.center)
+                along = offset @ axis
+                across = np.linalg.norm(offset - along[..., None] * axis, axis=2)
+                within = np.abs(along) <= obstacle.length / 2
+                depth = np.where(within, obstacle.radius + rod.radius - across, 0.0)
+            else:
+                height = (positions - np.asarray(obstacle.point)) @ obstacle.unit_normal
+                depth = rod.radius - height
             worst = max(worst, float(depth.max()) / rod.radius)
     return worst
 

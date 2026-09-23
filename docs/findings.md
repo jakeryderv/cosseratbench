@@ -92,6 +92,21 @@ The crossing experiment runs at 30 and 51 elements and blows up at 100, around
 state and continues after a bad acceleration, so a diverged run looks like it
 finished. The adapter checks MuJoCo's warning counter after every frame.
 
+**A pile costs it minutes.** *Cost.* The pile experiment, a 1.5 m rope in
+self-contact on a floor, takes MuJoCo 173 s at 100 elements and 1107 s at 150,
+against PyElastica's 18 s and 34 s. The step count barely changes between the
+two resolutions, so the cost per step grows about five times for half again as
+many elements: the implicit integrator's dense derivatives, and a contact solver
+with a hundred contacts, both grow faster than the chain does.
+
+**Its rope coils tightly.** *Solver behaviour.* Fed onto the floor at 0.4 m/s,
+MuJoCo's rope winds into a spiral of three turns about 10 cm across, lying almost
+flat (1.5 diameters tall, 5 places where it touches itself); PyElastica's makes
+looser loops 16 cm across, also flat, touching itself in 8 places. Neither is
+wrong: there is no reference, and the two differ in stretch, in rod-rod friction
+(PyElastica has none) and in contact stiffness. They agree that a rope this soft
+does not heap at this speed.
+
 ## PyElastica
 
 **Twisted rods buckle about 1% early.** *Open question.* The twist experiment's
@@ -128,6 +143,14 @@ cylinder), PyElastica's rope slides off at 70% of the overhang that holds, where
 MuJoCo holds to 95%. At 200 elements it holds to at least 80%. Stronger friction
 makes it worse, not better: at mu = 0.6 it slides below 80%. The cause is not
 yet known.
+
+**A rod meeting a plane end-on sinks half an element into it.** *Solver model.*
+PyElastica's plane contact acts at element centres, so a rope lowered onto the
+floor tip first is not stopped until its last element's centre reaches the
+surface, and its end node is then half an element below it: 2 radii at 1 cm
+elements, 3 at 1.5 cm, which is what `max_penetration` reports on the pile
+experiment (1.98 and 2.96). The rope rides back up once it buckles over. Contact
+with a cylinder is at nodes and does not do this.
 
 **First runs include JIT compilation.** *Cost.* Numba compilation added about 14 s
 to a first run against 0.5 s warm. The runner times runs after a short warm-up.
@@ -209,6 +232,25 @@ it away. The ropes now start a centimetre clear and settle into contact.
 cuts inside it by the chord's bulge. Measured there, both solvers showed the same
 penetration at every overhang on the capstan. It is measured at nodes instead, and
 the capstan's rope is drawn so its segments rest on the cylinder.
+
+**A flat imperfection leaves a symmetric solver flat.** *Measurement pitfall.*
+The pile experiment seeds the hanging rope with a small bow so that it folds a
+definite way. Seeded with a bow in one plane, PyElastica's rope folded back and
+forth in that plane for the whole run, never leaving it by more than rounding,
+and stacked into a zigzag ten diameters tall that looked like a heap in the
+metrics; MuJoCo's rope left the plane at once and coiled. The seed now bows in
+two directions at once, and both solvers coil.
+
+**An undamped rope on a floor never settles.** *Measurement pitfall.* Run as
+dynamics, with no dissipation but contact damping and friction, PyElastica's rope
+was still moving at a third of a rod length per second a second after the clamp
+had stopped. The pile experiment is quasi-static: the heap at rest is the result,
+and the adapters' settling damping, mild next to the feed, brings it there.
+
+**A clamp lowered into the heap flings the rope.** *Measurement pitfall.* With
+the clamp stopping 5 cm above the floor it descended into the standing loop under
+it and crushed it, and MuJoCo's rope shot out flat at over 1 m/s. The clamp now
+stops at 15 cm, clear of the heap.
 
 **Timing zero crossings is fragile.** *Measurement pitfall.* A 0.65 mm vibration
 riding on a 1.25 cm swing gave extra crossings and a 52% period error. Fitting a

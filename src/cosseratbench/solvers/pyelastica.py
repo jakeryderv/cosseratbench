@@ -7,7 +7,7 @@ import math
 import elastica as ea
 import numpy as np
 
-from cosseratbench.scenario import Cylinder, End, EndCondition, Motion, Rod, Scenario
+from cosseratbench.scenario import Cylinder, End, EndCondition, Motion, Plane, Rod, Scenario
 from cosseratbench.solver import Capability, Diverged
 from cosseratbench.trajectory import Trajectory
 
@@ -110,9 +110,18 @@ class PyElasticaSolver:
         simulator = _Simulator()
         rods = [self._add_rod(simulator, scenario, spec, n_elements, dt) for spec in scenario.rods]
         for obstacle in scenario.obstacles:
-            cylinder = self._add_cylinder(simulator, obstacle)
-            for spec, rod in zip(scenario.rods, rods):
-                self._add_contact(simulator, rod, cylinder, spec, obstacle, n_elements, dt)
+            if isinstance(obstacle, Plane):
+                plane = ea.Plane(
+                    plane_origin=np.asarray(obstacle.point, dtype=float),
+                    plane_normal=obstacle.unit_normal,
+                )
+                simulator.append(plane)
+                for spec, rod in zip(scenario.rods, rods):
+                    self._add_plane_contact(simulator, rod, plane, spec, obstacle, n_elements, dt)
+            else:
+                cylinder = self._add_cylinder(simulator, obstacle)
+                for spec, rod in zip(scenario.rods, rods):
+                    self._add_contact(simulator, rod, cylinder, spec, obstacle, n_elements, dt)
         self._add_rod_contact(simulator, scenario, rods, n_elements, dt)
         simulator.finalize()
 
@@ -219,6 +228,38 @@ class PyElasticaSolver:
             nu=damping,
             velocity_damping_coefficient=1e3 * node_mass / dt,
             friction_coefficient=max(obstacle.friction, spec.friction),
+        )
+
+    @staticmethod
+    def _add_plane_contact(
+        simulator: _Simulator,
+        rod: ea.CosseratRod,
+        plane: ea.Plane,
+        spec: Rod,
+        obstacle: Plane,
+        n_elements: int,
+        dt: float,
+    ) -> None:
+        # The same penalty spring as against a cylinder. Against a plane PyElastica has
+        # real static friction: an element moving slower than a threshold is held by up
+        # to mu times the normal force, and one moving faster gets kinetic friction. The
+        # threshold is a small fraction of a rod length per second. The same coefficient
+        # applies along the rod, against it, and sideways, as the scenario states.
+        node_mass = PyElasticaSolver._node_mass(spec, n_elements)
+        stiffness, damping = PyElasticaSolver._spring(node_mass, dt)
+        friction = max(obstacle.friction, spec.friction)
+        if friction == 0.0:
+            simulator.detect_contact_between(rod, plane).using(
+                ea.RodPlaneContact, k=stiffness, nu=damping
+            )
+            return
+        simulator.detect_contact_between(rod, plane).using(
+            ea.RodPlaneContactWithAnisotropicFriction,
+            k=stiffness,
+            nu=damping,
+            slip_velocity_tol=1e-4 * spec.length,
+            static_mu_array=np.full(3, friction),
+            kinetic_mu_array=np.full(3, friction),
         )
 
     @staticmethod
