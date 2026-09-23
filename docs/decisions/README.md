@@ -19,3 +19,4 @@ replaced, the old record stays and says what replaced it.
 | [0011](0011-contact-between-rods.md) | Contact between rods, and saying when it can happen | Accepted |
 | [0012](0012-scipy-for-references.md) | SciPy for references that have no closed form | Accepted |
 | [0013](0013-trajectories-carry-orientation.md) | Trajectories carry orientation | Accepted |
+| [0014](0014-planes-and-a-pile-without-a-reference.md) | Planes to rest on, and a pile without a reference | Accepted |

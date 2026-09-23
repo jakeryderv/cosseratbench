@@ -323,6 +323,22 @@ def test_penetration_is_how_deep_nodes_sink_into_obstacles():
     assert math.isnan(max_penetration(Scenario(rods=(rod,), duration=1.0), trajectory))
 
 
+def test_penetration_is_how_deep_nodes_sink_into_a_plane():
+    from cosseratbench import Plane
+    from cosseratbench.experiment import max_penetration
+
+    floor = Plane(point=(0, 0, 0.5), normal=(0, 0, 2.0))  # a floor at z = 0.5, facing up
+    rod = Rod(((-1, 0, 1), (1, 0, 1)), 0.01, RUBBER)
+    positions = np.zeros((2, 3, 3))
+    positions[:, :, 0] = (-1.0, 0.0, 1.0)
+    positions[:, :, 2] = 0.51  # just touching
+    positions[1, 1, 2] = 0.5075  # its middle node sinks a quarter of its radius
+    scenario = Scenario(rods=(rod,), obstacles=(floor,), duration=1.0)
+    trajectory = Trajectory(np.array([0.0, 1.0]), (positions,), (np.zeros((2, 2, 3)),))
+    assert max_penetration(scenario, trajectory) == pytest.approx(0.25)
+    assert floor.kind == "plane"  # so a saved scenario says what shape each obstacle is
+
+
 def test_segment_distance_finds_the_closest_approach_of_two_segments():
     from cosseratbench.metrics import segment_distance
 

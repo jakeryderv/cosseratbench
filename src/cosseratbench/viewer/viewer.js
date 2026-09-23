@@ -216,6 +216,7 @@ function bounds() {
   for (const entry of state.entries) for (const rod of entry.rods) include(rod.frames.subarray(0, rod.nNodes * 3));
   for (const curve of state.variant.reference ?? []) include(curve.flat());
   for (const obstacle of state.variant.scenario.obstacles ?? []) {
+    if (obstacle.kind === "plane") continue; // unbounded; drawn to fit whatever else is here
     const reach = obstacle.radius + obstacle.length / 2;
     for (const axis of [0, 1, 2]) for (const sign of [-1, 1]) {
       const corner = [...obstacle.center];
@@ -408,10 +409,17 @@ function startingExtent(variant, runs, loaded) {
   const box = new THREE.Box3();
   const point = new THREE.Vector3();
   runs.forEach((run, i) => {
-    const firstFrame = run.trajectory.n_nodes.reduce((sum, n) => sum + n, 0) * 3;
-    for (let k = 0; k < firstFrame; k += 3) box.expandByPoint(point.set(loaded[i][k], loaded[i][k + 1], loaded[i][k + 2]));
+    let offset = 0; // each rod's frames follow the last rod's, so its first frame starts where they end
+    for (const n of run.trajectory.n_nodes) {
+      for (let k = offset; k < offset + n * 3; k += 3) box.expandByPoint(point.set(loaded[i][k], loaded[i][k + 1], loaded[i][k + 2]));
+      offset += run.trajectory.times.length * n * 3;
+    }
   });
   for (const obstacle of variant.scenario.obstacles ?? []) {
+    if (obstacle.kind === "plane") {
+      box.expandByPoint(point.set(...obstacle.point)); // unbounded; only where it is
+      continue;
+    }
     box.expandByPoint(point.set(...obstacle.center).addScalar(obstacle.radius));
     box.expandByPoint(point.set(...obstacle.center).addScalar(-obstacle.radius));
   }
@@ -472,12 +480,22 @@ async function showVariant(variant) {
 
   // Obstacles, drawn solid but quiet: the rods are what matter.
   for (const obstacle of variant.scenario.obstacles ?? []) {
-    const geometry = new THREE.CylinderGeometry(obstacle.radius, obstacle.radius, obstacle.length, 64);
     const material = new THREE.MeshStandardMaterial({ color: cssColor("--axis"), roughness: 0.8, transparent: true, opacity: 0.75 });
-    const mesh = new THREE.Mesh(geometry, material);
-    const axis = new THREE.Vector3(...obstacle.axis).normalize();
-    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), axis); // three.js cylinders run along y
-    mesh.position.set(...obstacle.center);
+    let mesh;
+    if (obstacle.kind === "plane") {
+      // Unbounded, so drawn as a slab wide enough to run under everything that moves.
+      const size = bounds().getSize(new THREE.Vector3());
+      const side = 3 * Math.max(size.x, size.y, size.z, 0.1);
+      mesh = new THREE.Mesh(new THREE.PlaneGeometry(side, side), material);
+      material.side = THREE.DoubleSide;
+      mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3(...obstacle.normal).normalize());
+      mesh.position.set(...obstacle.point);
+    } else {
+      mesh = new THREE.Mesh(new THREE.CylinderGeometry(obstacle.radius, obstacle.radius, obstacle.length, 64), material);
+      const axis = new THREE.Vector3(...obstacle.axis).normalize();
+      mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), axis); // three.js cylinders run along y
+      mesh.position.set(...obstacle.center);
+    }
     content.add(mesh);
   }
 
@@ -666,8 +684,10 @@ function buildScenario() {
   items.push(
     ["Gravity", g ? `${formatNumber(g)} m/s² along ${direction(scenario.gravity)}` : "none"],
     ...(scenario.obstacles ?? []).map((o, i) => [
-      `Cylinder${scenario.obstacles.length > 1 ? ` ${i + 1}` : ""}`,
-      `radius ${si(o.radius, "m")}, friction ${formatNumber(o.friction)}`,
+      `${o.kind === "plane" ? "Plane" : "Cylinder"}${scenario.obstacles.length > 1 ? ` ${i + 1}` : ""}`,
+      o.kind === "plane"
+        ? `facing ${direction(o.normal)}, friction ${formatNumber(o.friction)}`
+        : `radius ${si(o.radius, "m")}, friction ${formatNumber(o.friction)}`,
     ]),
     ["Duration", `${formatNumber(scenario.duration)} s`],
     ["Judged on", scenario.quasi_static ? "final equilibrium; solvers may add damping to reach it" : "the motion itself; no added damping"],

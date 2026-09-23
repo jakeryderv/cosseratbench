@@ -33,6 +33,7 @@ pendulum = "cosseratbench.experiments.pendulum:pendulum"
 twist = "cosseratbench.experiments.twist:twist"
 capstan = "cosseratbench.experiments.capstan:capstan"
 crossing = "cosseratbench.experiments.crossing:crossing"
+pile = "cosseratbench.experiments.pile:pile"
 
 [dependency-groups]
 dev = ["pytest>=8", "ruff>=0.6"]
