@@ -1,0 +1,18 @@
+{
+  "experiment": "twist",
+  "solver": "pyelastica",
+  "outcome": "diverged",
+  "n_elements": 50,
+  "values": {
+    "tension": 10.0
+  },
+  "options": {
+    "time_step_scale": 4.0
+  },
+  "missing": [],
+  "failure": "PyElastica simulation diverged",
+  "diverged_at": null,
+  "wall_time": null,
+  "metrics": {},
+  "observations": {}
+}

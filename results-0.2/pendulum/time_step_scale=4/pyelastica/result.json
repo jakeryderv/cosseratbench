@@ -1,0 +1,18 @@
+{
+  "experiment": "pendulum",
+  "solver": "pyelastica",
+  "outcome": "diverged",
+  "n_elements": 50,
+  "values": {
+    "youngs_modulus": 10000000.0
+  },
+  "options": {
+    "time_step_scale": 4.0
+  },
+  "missing": [],
+  "failure": "rod 0 has a segment stretched 50.4x",
+  "diverged_at": 0.05,
+  "wall_time": 1.2977844389970414,
+  "metrics": {},
+  "observations": {}
+}

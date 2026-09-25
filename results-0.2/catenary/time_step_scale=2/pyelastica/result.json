@@ -1,0 +1,19 @@
+{
+  "experiment": "catenary",
+  "solver": "pyelastica",
+  "outcome": "diverged",
+  "n_elements": 50,
+  "values": {
+    "youngs_modulus": 1000000.0,
+    "span": 0.8
+  },
+  "options": {
+    "time_step_scale": 2.0
+  },
+  "missing": [],
+  "failure": "rod 0 has a segment stretched 54.4x",
+  "diverged_at": 0.05,
+  "wall_time": 0.33938044200112927,
+  "metrics": {},
+  "observations": {}
+}

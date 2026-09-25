@@ -1,0 +1,21 @@
+{
+  "experiment": "pendulum",
+  "solver": "pyelastica",
+  "outcome": "completed",
+  "n_elements": 50,
+  "values": {
+    "youngs_modulus": 10000000.0
+  },
+  "options": {},
+  "missing": [],
+  "failure": null,
+  "diverged_at": null,
+  "wall_time": 4.545388693000859,
+  "metrics": {
+    "period_error": 0.00013682103528752157,
+    "amplitude_change": -1.0035134318187033e-05
+  },
+  "observations": {
+    "max_strain": 0.0009730012923703235
+  }
+}

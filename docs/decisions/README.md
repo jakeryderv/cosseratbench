@@ -21,3 +21,4 @@ replaced, the old record stays and says what replaced it.
 | [0013](0013-trajectories-carry-orientation.md) | Trajectories carry orientation | Accepted |
 | [0014](0014-planes-and-a-pile-without-a-reference.md) | Planes to rest on, and a pile without a reference | Accepted |
 | [0015](0015-a-third-solver.md) | A third solver, and which | Accepted |
+| [0016](0016-reusing-runs-and-running-in-parallel.md) | Reusing runs, rescoring them, and running several at once | Accepted |

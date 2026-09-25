@@ -1,0 +1,21 @@
+{
+  "experiment": "pendulum",
+  "solver": "mujoco",
+  "outcome": "completed",
+  "n_elements": 50,
+  "values": {
+    "youngs_modulus": 1000000.0
+  },
+  "options": {},
+  "missing": [],
+  "failure": null,
+  "diverged_at": null,
+  "wall_time": 1.623045757998625,
+  "metrics": {
+    "period_error": 0.00030770471457748215,
+    "amplitude_change": 5.195598517437894e-05
+  },
+  "observations": {
+    "max_strain": 0.009711922451321575
+  }
+}

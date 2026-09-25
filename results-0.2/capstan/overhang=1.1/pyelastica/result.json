@@ -1,0 +1,22 @@
+{
+  "experiment": "capstan",
+  "solver": "pyelastica",
+  "outcome": "completed",
+  "n_elements": 100,
+  "values": {
+    "overhang": 1.1,
+    "friction": 0.3
+  },
+  "options": {},
+  "missing": [],
+  "failure": null,
+  "diverged_at": null,
+  "wall_time": 1.531282089999877,
+  "metrics": {
+    "slide": 0.2124323704547074
+  },
+  "observations": {
+    "max_strain": 0.02209267005902915,
+    "max_penetration": 0.0
+  }
+}

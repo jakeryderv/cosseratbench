@@ -1,0 +1,19 @@
+{
+  "experiment": "cantilever",
+  "solver": "mujoco",
+  "outcome": "completed",
+  "n_elements": 10,
+  "values": {},
+  "options": {},
+  "missing": [],
+  "failure": null,
+  "diverged_at": null,
+  "wall_time": 0.03025135899952147,
+  "metrics": {
+    "tip_deflection_error": 0.14527133780792692,
+    "settling_residual": 5.478628470935715e-07
+  },
+  "observations": {
+    "max_strain": 3.576278712058567e-07
+  }
+}

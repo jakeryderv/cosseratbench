@@ -6,18 +6,7 @@ import argparse
 import tempfile
 from pathlib import Path
 
-from cosseratbench import registry, site, variations
-from cosseratbench.experiment import DIVERGED, UNSUPPORTED, Result, run
-
-
-def _describe(result: Result) -> str:
-    if result.outcome == UNSUPPORTED:
-        return "unsupported (needs " + ", ".join(result.missing) + ")"
-    if result.outcome == DIVERGED:
-        when = f" at t = {result.diverged_at:.3g} s" if result.diverged_at is not None else ""
-        return f"diverged{when}: {result.failure}"
-    metrics = "  ".join(f"{name}={value:.3e}" for name, value in result.metrics.items())
-    return f"{result.wall_time:6.1f}s  {metrics}"
+from cosseratbench import registry, runs, site, variations
 
 
 def _list(_: argparse.Namespace) -> None:
@@ -36,37 +25,19 @@ def _run(args: argparse.Namespace) -> None:
         registry.load_experiment(name)
         for name in args.experiment or registry.names(registry.EXPERIMENTS)
     ]
-    solvers = args.solver or registry.names(registry.SOLVERS)
-    vary = args.vary or []
-    # Each name applies where it means something; one that means nothing anywhere is a typo.
-    sweepable = {name: variations.sweepable(e) for e in experiments for name in [e.name]}
-    for name in vary:
-        if name != "all" and not any(name in names for names in sweepable.values()):
-            raise KeyError(f"nothing to vary called {name!r}; see `cosseratbench list`")
-    for experiment in experiments:
-        experiment_name = experiment.name
-        defaults = variations.defaults(experiment)
-        applicable = [n for n in vary if n == "all" or n in sweepable[experiment_name]]
-        for variant in variations.variants(experiment, applicable):
-            directory = args.out / experiment_name / variant.key
-            experiment.save(directory, variant.parameters, variant.varied, defaults)
-            for solver_name in solvers:
-                label = f"{experiment_name:12s} {variant.key:24s} {solver_name:12s}"
-                try:
-                    solver = registry.load_solver(solver_name, **variant.options)
-                except ImportError as error:
-                    print(f"{label} not installed ({error.name})")
-                    continue
-                n_elements = variant.n_elements or args.n_elements
-                result = run(
-                    experiment,
-                    solver,
-                    values=variant.parameters,
-                    options=variant.options,
-                    n_elements=n_elements,
-                )
-                result.save(directory / solver_name)
-                print(f"{label} n={result.n_elements:<4d} {_describe(result)}")
+    tasks = runs.plan(
+        experiments,
+        args.solver or registry.names(registry.SOLVERS),
+        args.vary or [],
+        args.n_elements,
+        args.out,
+        force=args.force,
+    )
+    runs.execute(tasks, jobs=args.jobs)
+
+
+def _rescore(args: argparse.Namespace) -> None:
+    runs.rescore(args.results, args.experiment)
 
 
 def _view(args: argparse.Namespace) -> None:
@@ -107,7 +78,32 @@ def main() -> None:
         help="also run each other value of this parameter or solver option, one at a time; "
         "repeatable, or 'all' (see `cosseratbench list`)",
     )
+    run_parser.add_argument(
+        "-j",
+        "--jobs",
+        type=int,
+        default=1,
+        help="runs at once (default 1). Above 1 they compete for the machine and their wall "
+        "times read high; each result records how many ran together. Keep it below the "
+        "number of physical cores.",
+    )
+    run_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="rerun even runs whose saved result still stands (same scenario, resolution, "
+        "options, solver version and adapter code)",
+    )
     run_parser.set_defaults(func=_run)
+
+    rescore_parser = commands.add_parser(
+        "rescore",
+        help="recompute metrics and observations from saved trajectories, without simulating",
+    )
+    rescore_parser.add_argument(
+        "experiment", nargs="*", help="experiments to rescore (default: all)"
+    )
+    rescore_parser.add_argument("-r", "--results", type=Path, default=Path("results"))
+    rescore_parser.set_defaults(func=_rescore)
 
     view_parser = commands.add_parser("view", help="open the results in a browser")
     view_parser.add_argument("-r", "--results", type=Path, default=Path("results"))
@@ -123,5 +119,5 @@ def main() -> None:
     args = parser.parse_args()
     try:
         args.func(args)
-    except (FileNotFoundError, KeyError, ValueError) as error:
+    except (FileNotFoundError, KeyError, ValueError, RuntimeError) as error:
         parser.exit(1, f"cosseratbench: {error}\n")

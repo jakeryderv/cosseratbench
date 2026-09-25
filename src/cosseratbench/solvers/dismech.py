@@ -13,8 +13,10 @@ from __future__ import annotations
 
 import contextlib
 import io
+import json
 import math
 import os
+from importlib.metadata import distribution
 
 import numpy as np
 
@@ -130,8 +132,18 @@ def _damped(base, velocity_gradient: float):
     return Damped
 
 
+def _installed_version() -> str:
+    """dismech-python's version and, installed from git, the commit: its version number
+    alone does not change between commits."""
+    installed = distribution("dismech-python")
+    source = json.loads(installed.read_text("direct_url.json") or "{}")
+    commit = source.get("vcs_info", {}).get("commit_id")
+    return f"{installed.version}+{commit[:7]}" if commit else installed.version
+
+
 class DismechSolver:
     name = "dismech"
+    backend_version = _installed_version()
     # Discrete elastic rods stretch, bend and twist, and IMC gives them frictional
     # contact with each other; a floor is a level plane. No shear, no cylinders.
     capabilities = frozenset(

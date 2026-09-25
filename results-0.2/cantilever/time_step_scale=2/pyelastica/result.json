@@ -1,0 +1,16 @@
+{
+  "experiment": "cantilever",
+  "solver": "pyelastica",
+  "outcome": "diverged",
+  "n_elements": 20,
+  "values": {},
+  "options": {
+    "time_step_scale": 2.0
+  },
+  "missing": [],
+  "failure": "rod 0 has a segment stretched 28.8x",
+  "diverged_at": 0.1,
+  "wall_time": 0.13211677300205338,
+  "metrics": {},
+  "observations": {}
+}

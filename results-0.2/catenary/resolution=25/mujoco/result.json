@@ -1,0 +1,23 @@
+{
+  "experiment": "catenary",
+  "solver": "mujoco",
+  "outcome": "completed",
+  "n_elements": 25,
+  "values": {
+    "youngs_modulus": 1000000.0,
+    "span": 0.8
+  },
+  "options": {},
+  "missing": [],
+  "failure": null,
+  "diverged_at": null,
+  "wall_time": 0.4422020439997141,
+  "metrics": {
+    "shape_error": 0.0033022681069346106,
+    "sag_error": 0.014524105155484936,
+    "settling_residual": 4.2417223102585924e-08
+  },
+  "observations": {
+    "max_strain": 0.000340616629203927
+  }
+}

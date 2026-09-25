@@ -55,12 +55,22 @@ uv run cosseratbench run    # every experiment x every solver, saved under resul
 uv run cosseratbench run catenary --solver pyelastica --n-elements 100
 uv run cosseratbench run catenary --vary span --vary time_step_scale
 uv run cosseratbench run --vary all   # every parameter and solver option, one at a time
+uv run cosseratbench run --vary all -j 8   # the same, eight simulations at once
+uv run cosseratbench rescore   # recompute metrics from saved trajectories, simulating nothing
 uv run cosseratbench view   # open the results in a browser
 ```
 
+A run whose saved result still stands (same scenario, resolution, solver options,
+solver version and adapter code) is reused and reported as `[saved]`; `--force`
+reruns it. With `-j`, runs compete for the machine, so each is held to one thread
+and records how many ran at once, and their wall times should be read with that in
+mind. With dismech installed, name the solvers or experiments you want: twist on
+dismech takes hours.
+
 Each run writes `results/<experiment>/<variant>/<solver>/result.json` (outcome,
-metrics, observations, wall time) and `trajectory.npz` (node positions and element
-directors over time), next to an `experiment.json` describing the problem. A variant is the ordinary
+metrics, observations, wall time, and what the trajectory depended on) and
+`trajectory.npz` (node positions and element directors over time), next to an
+`experiment.json` describing the problem. A variant is the ordinary
 case (`default`) or one change from it: a physical parameter the experiment
 declares, the resolution, or `time_step_scale`, which multiplies the time step
 each solver would choose. `cosseratbench list` shows what each experiment can vary. Wall time excludes a short warm-up run, so one-off costs

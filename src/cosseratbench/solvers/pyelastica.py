@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from importlib.metadata import version
 
 import elastica as ea
 import numpy as np
@@ -93,6 +94,7 @@ def _stable_time_step(rod: Rod, n_elements: int) -> float:
 
 class PyElasticaSolver:
     name = "pyelastica"
+    backend_version = version("pyelastica")
     # PyElastica's rod-rod and self-contact are frictionless: no ROD_FRICTION.
     capabilities = frozenset(
         {

@@ -11,6 +11,7 @@ from pathlib import Path
 import numpy as np
 
 from cosseratbench.metrics import segment_distance
+from cosseratbench.provenance import provenance
 from cosseratbench.scenario import Cylinder, Scenario, neighbour_elements
 from cosseratbench.solver import Capability, Solver
 from cosseratbench.trajectory import Trajectory
@@ -110,11 +111,17 @@ class Experiment:
 COMPLETED, UNSUPPORTED, DIVERGED = "completed", "unsupported", "diverged"
 
 
+def finite(numbers: Mapping[str, float]) -> dict[str, float | None]:
+    """JSON has no NaN or infinity; a value that could not be computed is saved as null."""
+    return {k: v if np.isfinite(v) else None for k, v in numbers.items()}
+
+
 @dataclass(frozen=True)
 class Result:
     experiment: str
     solver: str
     n_elements: int
+    n_frames: int | None = None
     values: Mapping[str, float] = field(default_factory=dict)  # the experiment's parameters
     options: Mapping[str, float] = field(default_factory=dict)  # the solver's, as run
     # Capabilities the experiment requires and the solver lacks; if any, it was not run.
@@ -125,6 +132,11 @@ class Result:
     metrics: Mapping[str, float] = field(default_factory=dict)
     observations: Mapping[str, float] = field(default_factory=dict)
     trajectory: Trajectory | None = None
+    # What the trajectory depended on besides resolution and options (see provenance).
+    provenance: Mapping[str, str | None] = field(default_factory=dict)
+    # How many runs were going at once when this one was timed; above 1 they competed
+    # for the machine and the wall time reads high.
+    jobs: int = 1
 
     @property
     def outcome(self) -> str:
@@ -136,18 +148,14 @@ class Result:
     def supported(self) -> bool:
         return not self.missing
 
-    def save(self, directory: Path) -> None:
-        directory.mkdir(parents=True, exist_ok=True)
-
-        def finite(numbers: Mapping[str, float]) -> dict[str, float | None]:
-            # JSON has no NaN or infinity; a value that could not be computed is null.
-            return {k: v if np.isfinite(v) else None for k, v in numbers.items()}
-
-        summary = {
+    def summary(self) -> dict:
+        """Everything but the trajectory, as saved in result.json."""
+        return {
             "experiment": self.experiment,
             "solver": self.solver,
             "outcome": self.outcome,
             "n_elements": self.n_elements,
+            "n_frames": self.n_frames,
             "values": dict(self.values),
             "options": dict(self.options),
             "missing": list(self.missing),
@@ -156,9 +164,14 @@ class Result:
             "wall_time": self.wall_time,
             "metrics": finite(self.metrics),
             "observations": finite(self.observations),
+            "provenance": dict(self.provenance),
+            "jobs": self.jobs,
         }
+
+    def save(self, directory: Path) -> None:
+        directory.mkdir(parents=True, exist_ok=True)
         (directory / "result.json").write_text(
-            json.dumps(summary, indent=2, allow_nan=False) + "\n"
+            json.dumps(self.summary(), indent=2, allow_nan=False) + "\n"
         )
         if self.trajectory is not None:
             self.trajectory.save(directory / "trajectory.npz")
@@ -291,8 +304,10 @@ def run(
         "experiment": experiment.name,
         "solver": solver.name,
         "n_elements": n_elements,
+        "n_frames": n_frames,
         "values": values,
         "options": dict(options or {}),
+        "provenance": provenance(scenario, solver),
     }
     missing = (experiment.requires | _needs(scenario)) - solver.capabilities
     if missing:
@@ -314,10 +329,21 @@ def run(
         failure, when = divergence
         return Result(**identity, failure=failure, diverged_at=when, wall_time=wall_time)
 
+    metrics, observations = score(experiment, scenario, trajectory)
     return Result(
         **identity,
         wall_time=wall_time,
-        metrics={name: float(m(scenario, trajectory)) for name, m in experiment.metrics.items()},
-        observations={name: float(o(scenario, trajectory)) for name, o in OBSERVATIONS.items()},
+        metrics=metrics,
+        observations=observations,
         trajectory=trajectory,
     )
+
+
+def score(
+    experiment: Experiment, scenario: Scenario, trajectory: Trajectory
+) -> tuple[dict[str, float], dict[str, float]]:
+    """The experiment's metrics and the standard observations of one trajectory. They
+    see nothing but the scenario and the trajectory, so a saved run can be rescored."""
+    metrics = {name: float(m(scenario, trajectory)) for name, m in experiment.metrics.items()}
+    observations = {name: float(o(scenario, trajectory)) for name, o in OBSERVATIONS.items()}
+    return metrics, observations
