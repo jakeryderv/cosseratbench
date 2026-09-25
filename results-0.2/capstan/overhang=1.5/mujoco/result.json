@@ -1,0 +1,22 @@
+{
+  "experiment": "capstan",
+  "solver": "mujoco",
+  "outcome": "completed",
+  "n_elements": 100,
+  "values": {
+    "overhang": 1.5,
+    "friction": 0.3
+  },
+  "options": {},
+  "missing": [],
+  "failure": null,
+  "diverged_at": null,
+  "wall_time": 8.360041869997076,
+  "metrics": {
+    "slide": 0.2212406270659507
+  },
+  "observations": {
+    "max_strain": 0.023549100754815422,
+    "max_penetration": 0.03269904882834823
+  }
+}

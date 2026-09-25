@@ -624,6 +624,10 @@ function buildMetrics() {
     ...(observed.length ? [{ section: "Observed on every run" }] : []),
     ...observed.map((name) => ({ label: name.replaceAll("_", " "), value: (run) => run.observations?.[name], bar: true })),
     { label: "wall time (s)", value: (run) => run.wall_time, bar: true },
+    // Runs timed alongside others competed for the machine; say so beside their times.
+    ...(runs.some((run) => (run.jobs ?? 1) > 1)
+      ? [{ label: "runs at once when timed", value: (run) => run.jobs ?? 1, bar: false }]
+      : []),
     { label: "elements per rod", value: (run) => run.n_elements, bar: false },
   ];
 

@@ -1,0 +1,20 @@
+{
+  "experiment": "twist",
+  "solver": "pyelastica",
+  "outcome": "completed",
+  "n_elements": 100,
+  "values": {
+    "tension": 10.0
+  },
+  "options": {},
+  "missing": [],
+  "failure": null,
+  "diverged_at": null,
+  "wall_time": 165.07098039900302,
+  "metrics": {
+    "critical_twist_error": 0.009116854871817459
+  },
+  "observations": {
+    "max_strain": 0.0179472722278482
+  }
+}

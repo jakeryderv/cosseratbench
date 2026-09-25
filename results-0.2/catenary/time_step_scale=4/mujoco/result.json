@@ -1,0 +1,19 @@
+{
+  "experiment": "catenary",
+  "solver": "mujoco",
+  "outcome": "diverged",
+  "n_elements": 50,
+  "values": {
+    "youngs_modulus": 1000000.0,
+    "span": 0.8
+  },
+  "options": {
+    "time_step_scale": 4.0
+  },
+  "missing": [],
+  "failure": "MuJoCo simulation diverged",
+  "diverged_at": 0.05,
+  "wall_time": null,
+  "metrics": {},
+  "observations": {}
+}

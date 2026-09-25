@@ -1,0 +1,23 @@
+{
+  "experiment": "catenary",
+  "solver": "pyelastica",
+  "outcome": "completed",
+  "n_elements": 50,
+  "values": {
+    "youngs_modulus": 1000000.0,
+    "span": 0.95
+  },
+  "options": {},
+  "missing": [],
+  "failure": null,
+  "diverged_at": null,
+  "wall_time": 0.6257309629982046,
+  "metrics": {
+    "shape_error": 0.00036757859038084645,
+    "sag_error": 0.0018814982968903857,
+    "settling_residual": 4.395780167463963e-08
+  },
+  "observations": {
+    "max_strain": 0.013975756337909484
+  }
+}

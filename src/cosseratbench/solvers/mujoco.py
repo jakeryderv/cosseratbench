@@ -201,6 +201,7 @@ def _stable_time_step(rod: Rod, n_elements: int) -> float:
 
 class MuJoCoSolver:
     name = "mujoco"
+    backend_version = mujoco.__version__
     # Segments neither stretch nor shear; they do collide, with friction, with each
     # other and with fixed geoms of any shape.
     capabilities = frozenset(

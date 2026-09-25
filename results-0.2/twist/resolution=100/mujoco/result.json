@@ -1,0 +1,16 @@
+{
+  "experiment": "twist",
+  "solver": "mujoco",
+  "outcome": "diverged",
+  "n_elements": 100,
+  "values": {
+    "tension": 10.0
+  },
+  "options": {},
+  "missing": [],
+  "failure": "MuJoCo simulation diverged",
+  "diverged_at": 1.9500000000000002,
+  "wall_time": null,
+  "metrics": {},
+  "observations": {}
+}
