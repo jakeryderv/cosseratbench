@@ -198,11 +198,27 @@ that makes every solver's cantilever converge at first order.
 **Crossed ropes drift out of symmetry after settling.** *Open question.* On the
 crossing experiment (51 elements) dismech's ropes settle at the right gap by 2 s,
 then around 3.5 s the lower rope's middle drifts 3.5 mm out of its plane, growing
-exponentially, and around 7.5 s the upper rope's drifts 2.6 mm; the run ends still
-moving (settling residual 9e-3) with lift error 2.6% and shape error 6.7e-3.
-PyElastica holds the lower rope in plane to 1e-15. Whether it depends on the time
-step, the contact stiffness the adapter picks, or dismech's contact model is not
-yet known.
+exponentially, and near the end the upper rope's starts to (0.7 mm by 8 s). The
+run ends still moving (settling residual 2.2e-3), with lift error 0.57% and shape
+error 6.6e-3. PyElastica holds the lower rope in plane to 1e-15. Whether it
+depends on the time step, the contact stiffness the adapter picks, or dismech's
+contact model is not yet known. (An earlier run, with dismech's own choice of
+which elements can touch, drifted the same way and ended with lift error 2.6%.)
+
+**It runs faster on one thread.** *Cost.* Each Newton step solves a dense system
+of a few hundred unknowns, too small for many threads to help: 0.4 s of the
+crossing (200 steps) took about 4.7 s with one thread and 7.8 s with 24, setup
+left out. Runs with `-j` are held to
+one thread; for a single dismech run, `OMP_NUM_THREADS=1` does the same.
+
+**It derives its contact functions afresh for every run.** *Cost.* dismech
+differentiates its contact energies symbolically and compiles them each time a
+stepper is built: about 3 s for two crossing ropes, 12 s with friction on the
+pile. That cost fell inside every timed run, so dismech's wall times read up to
+12 s high. The adapter now keeps the compiled functions for the life of the
+process, which leaves them in the warm-up; a second build takes 0.15 s and the
+trajectories are identical. Its sparse Jacobian mode would not help: it needs
+pypardiso, and the contact, floor and damping Jacobians are still built dense.
 
 **Its pendulum matches PyElastica's.** *Solver behaviour.* With Newmark-beta,
 which conserves energy, the pendulum's period is 1.4e-4 off the reference at

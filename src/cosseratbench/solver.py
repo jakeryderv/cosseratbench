@@ -39,9 +39,14 @@ TIME_STEP_SCALE = "time_step_scale"  # multiplies the time step the adapter woul
 
 @runtime_checkable
 class Solver(Protocol):
-    """A solver adapter. It may also have a ``backend_version`` attribute, the version
-    of the library it drives, which is recorded with every run so that saved runs are
-    not reused across versions (see ``cosseratbench.provenance``)."""
+    """A solver adapter. Two optional extras are recorded with every run:
+
+    - ``backend_version``, the version of the library it drives, so that saved runs
+      are not reused across versions (see ``cosseratbench.provenance``);
+    - ``settings(scenario, *, n_elements, n_frames) -> dict``, the numerical choices it
+      makes for that run (time step, contact stiffness, damping...), as JSON values.
+      Results depend on these, so they are shown beside them.
+    """
 
     name: str
     capabilities: frozenset[Capability]

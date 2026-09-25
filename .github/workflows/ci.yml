@@ -6,7 +6,8 @@ on:
   pull_request:
 
 jobs:
-  test:
+  check:
+    # Lint and the fast tests: everything but full simulations.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -14,4 +15,25 @@ jobs:
       - run: uv sync --all-extras --group dismech
       - run: uv run ruff check .
       - run: uv run ruff format --check .
-      - run: uv run pytest
+      - run: uv run pytest -m "not slow"
+
+  simulate:
+    # The slow tests, one solver per job so they run side by side. Every slow test
+    # belongs to exactly one: those that name no solver run with PyElastica's.
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - solver: pyelastica
+            select: "not mujoco and not dismech"
+          - solver: mujoco
+            select: "mujoco"
+          - solver: dismech
+            select: "dismech"
+    name: simulate (${{ matrix.solver }})
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.2.0
+      - run: uv sync --all-extras --group dismech
+      - run: uv run pytest -m slow -k "${{ matrix.select }}"

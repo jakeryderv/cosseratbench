@@ -619,6 +619,7 @@ function buildMetrics() {
   // An observation that applies to no run here (penetration, with nothing to touch) is left out.
   const observed = [...new Set(runs.flatMap((run) => Object.entries(run.observations ?? {})
     .filter(([, value]) => value != null).map(([name]) => name)))];
+  const settingNames = [...new Set(runs.flatMap((run) => Object.keys(run.settings ?? {})))];
   const rows = [
     ...names.map((name) => ({ label: name.replaceAll("_", " "), value: (run) => run.metrics[name], bar: true })),
     ...(observed.length ? [{ section: "Observed on every run" }] : []),
@@ -629,6 +630,9 @@ function buildMetrics() {
       ? [{ label: "runs at once when timed", value: (run) => run.jobs ?? 1, bar: false }]
       : []),
     { label: "elements per rod", value: (run) => run.n_elements, bar: false },
+    // Each adapter's own numerical choices, which the results above depend on.
+    ...(settingNames.length ? [{ section: "Solver settings" }] : []),
+    ...settingNames.map((name) => ({ label: name.replaceAll("_", " "), value: (run) => run.settings?.[name], bar: false })),
   ];
 
   const head = el("tr", {}, el("th", { scope: "col" }, "Metric"),
@@ -639,7 +643,8 @@ function buildMetrics() {
     const largest = Math.max(...values.filter((v) => v != null).map(Math.abs));
     return el("tr", {}, el("th", { scope: "row" }, row.label), ...runs.map((run, i) => {
       if (values[i] == null) return el("td", { class: "na" }, "n/a");
-      const cell = el("td", {}, formatNumber(values[i]));
+      const shown = (v) => (typeof v === "number" ? formatNumber(v) : String(v));
+      const cell = el("td", {}, Array.isArray(values[i]) ? values[i].map(shown).join(", ") : shown(values[i]));
       if (row.bar && largest > 0) {
         const bar = el("span", { class: "bar" });
         bar.style.width = `${(100 * Math.abs(values[i])) / largest}%`;

@@ -12,6 +12,7 @@ the step is a matter of accuracy and cost, not stability.
 from __future__ import annotations
 
 import contextlib
+import functools
 import io
 import json
 import math
@@ -23,6 +24,8 @@ import numpy as np
 os.environ.setdefault("MPLBACKEND", "Agg")  # dismech imports matplotlib at import time
 import dismech
 from dismech.contact import ContactPair
+from dismech.contact import imc_energy as _imc
+from dismech.contact import imc_friction_energy as _imc_friction
 from dismech.external_forces import compute_gravity_forces
 from dismech.external_forces import ground_contact as _ground
 
@@ -60,6 +63,17 @@ def _floor_contact_at_every_node(original):
 
 if not getattr(_ground.compute_ground_contact, "fixed_by_cosseratbench", False):
     _ground.compute_ground_contact = _floor_contact_at_every_node(_ground.compute_ground_contact)
+
+# dismech derives its contact functions symbolically and compiles them every time a
+# stepper is built: 3 s for two ropes, 12 s with friction, paid again inside every
+# timed run although it is a one-off cost like JIT compilation. The compiled
+# functions depend on nothing but the formulas, so each process keeps the first.
+if not getattr(_imc.get_lambda_fns, "cache_info", None):
+    _imc.get_lambda_fns = functools.cache(_imc.get_lambda_fns)
+if not getattr(_imc_friction.generate_velocity_jacobian_funcs, "cache_info", None):
+    _imc_friction.generate_velocity_jacobian_funcs = functools.cache(
+        _imc_friction.generate_velocity_jacobian_funcs
+    )
 
 STEP = 2e-3  # s, the implicit step at time_step_scale 1
 SINK = 0.05  # radii a rod sinks into what it touches under the characteristic force
@@ -158,6 +172,48 @@ class DismechSolver:
     def __init__(self, time_step_scale: float = 1.0) -> None:
         self.time_step = STEP * time_step_scale
 
+    def _numerics(self, scenario: Scenario, n_frames: int) -> dict:
+        """Every numerical choice the adapter makes for a scenario, in one place."""
+        frame_interval = scenario.duration / (n_frames - 1)
+        steps_per_frame = math.ceil(frame_interval / self.time_step)
+        first = scenario.rods[0]
+        weight = sum(
+            r.material.density * r.area * r.length * float(np.linalg.norm(scenario.gravity))
+            for r in scenario.rods
+        )
+        loads = sum(float(np.linalg.norm(load.force)) for r in scenario.rods for load in r.loads)
+        bending = first.material.youngs_modulus * first.second_moment_of_area / first.length**2
+        force = max(weight, loads, bending)  # the characteristic force of the scenario
+        return {
+            "dt": frame_interval / steps_per_frame,
+            "steps_per_frame": steps_per_frame,
+            "force": force,
+            "integrator": (
+                "implicit Euler (Newton)" if scenario.quasi_static else "Newmark-beta (Newton)"
+            ),
+            "newton_tolerance": 1e-8 * force,
+            "damping_rate": 2.0 * scenario.slowest_frequency() if scenario.quasi_static else 0.0,
+            # IMC's energy is kc ((2h - d) / h)^2 for centrelines d apart, so the force on
+            # a rod sunk SINK radii into another is 2 kc SINK / h.
+            "contact_stiffness": force * first.radius / (2 * SINK),
+            # The floor's force on a node sunk a distance s is about 2 stiffness s.
+            "floor_stiffness": force / (2 * SINK * first.radius),
+            "friction_velocity_tolerance": 1e-4 * first.length,
+        }
+
+    def settings(self, scenario: Scenario, *, n_elements: int, n_frames: int) -> dict:
+        """The numerical choices this adapter makes for a scenario, as it makes them."""
+        numerics = self._numerics(scenario, n_frames)
+        touching = scenario.self_contact or len(scenario.rods) > 1
+        return {
+            "integrator": numerics["integrator"],
+            "time_step": numerics["dt"],
+            "damping_rate": numerics["damping_rate"],
+            "newton_tolerance": numerics["newton_tolerance"],
+            **({"contact_stiffness": numerics["contact_stiffness"]} if touching else {}),
+            **({"floor_stiffness": numerics["floor_stiffness"]} if scenario.obstacles else {}),
+        }
+
     def run(self, scenario: Scenario, *, n_elements: int, n_frames: int) -> Trajectory:
         rods = scenario.rods
         first = rods[0]
@@ -173,9 +229,8 @@ class DismechSolver:
                 if sliding and np.count_nonzero(np.abs(motion.axis) > 1e-12) != 1:
                     raise NotImplementedError("an end sliding along a direction off the axes")
 
-        frame_interval = scenario.duration / (n_frames - 1)
-        steps_per_frame = math.ceil(frame_interval / self.time_step)
-        dt = frame_interval / steps_per_frame
+        numerics = self._numerics(scenario, n_frames)
+        dt, steps_per_frame = numerics["dt"], numerics["steps_per_frame"]
 
         # One chain of nodes and edges per rod, all in one system so that rods can
         # touch each other. dismech takes the shape it is built in as stress-free, so it
@@ -204,12 +259,6 @@ class DismechSolver:
         geometry = dismech.Geometry(np.concatenate(rests), edges, np.empty(0), plot_from_txt=False)
 
         material = first.material
-        weight = sum(
-            r.material.density * r.area * r.length * np.linalg.norm(scenario.gravity) for r in rods
-        )
-        loads = sum(np.linalg.norm(load.force) for r in rods for load in r.loads)
-        bending = material.youngs_modulus * first.second_moment_of_area / first.length**2
-        force = max(weight, loads, bending)  # the characteristic force of the scenario
         params = dismech.SimParams(
             static_sim=False,
             two_d_sim=False,
@@ -222,7 +271,7 @@ class DismechSolver:
             max_iter=NEWTON_ITERATIONS,
             total_time=scenario.duration,
             plot_step=1,
-            tol=1e-8 * force,
+            tol=numerics["newton_tolerance"],
             ftol=1e-12,
             dtol=0.0,
         )
@@ -247,22 +296,26 @@ class DismechSolver:
             # IMC's energy is kc ((2h - d) / h)^2 for centrelines d apart, so the force
             # on a rod sunk SINK radii into another is 2 kc SINK / h.
             environment.add_force(
-                "selfContact", delta=0.2 * radius, h=radius, kc=force * radius / (2 * SINK)
+                "selfContact", delta=0.2 * radius, h=radius, kc=numerics["contact_stiffness"]
             )
             if friction > 0.0:
-                environment.add_force("selfFriction", mu=friction, vel_tol=1e-4 * first.length)
+                environment.add_force(
+                    "selfFriction", mu=friction, vel_tol=numerics["friction_velocity_tolerance"]
+                )
         for obstacle in scenario.obstacles:
             # The floor's force on a node sunk a distance s is about 2 stiffness s.
             environment.add_force(
                 "floorContact",
                 ground_z=float(obstacle.point[2]),
-                stiffness=force / (2 * SINK * radius),
+                stiffness=numerics["floor_stiffness"],
                 delta=0.2 * radius,
                 h=radius,
             )
             mu = max(obstacle.friction, friction)
             if mu > 0.0:
-                environment.add_force("floorFriction", mu=mu, vel_tol=1e-4 * first.length)
+                environment.add_force(
+                    "floorFriction", mu=mu, vel_tol=numerics["friction_velocity_tolerance"]
+                )
 
         shear = material.shear_modulus
         robot = dismech.SoftRobot(
@@ -301,10 +354,9 @@ class DismechSolver:
         # Newmark-beta, which conserves energy.
         if scenario.quasi_static:
             stepper_class = _damped(dismech.ImplicitEulerTimeStepper, 1.0)
-            rate = 2.0 * scenario.slowest_frequency()
         else:
             stepper_class = _damped(dismech.NewmarkBetaTimeStepper, 2.0)  # gamma / beta
-            rate = 0.0
+        rate = numerics["damping_rate"]
         with contextlib.redirect_stdout(io.StringIO()):  # IMC prints its settings
             stepper = stepper_class(robot, rate)
 
