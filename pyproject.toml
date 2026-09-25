@@ -1,6 +1,6 @@
 [project]
 name = "cosseratbench"
-version = "0.2.0"
+version = "0.3.0"
 description = "A visual benchmark suite for rope, cable, and Cosserat rod simulation."
 readme = "README.md"
 license = "Apache-2.0"

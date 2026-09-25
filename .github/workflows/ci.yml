@@ -17,6 +17,16 @@ jobs:
       - run: uv run ruff format --check .
       - run: uv run pytest -m "not slow"
 
+  oldest-python:
+    # The package supports Python 3.10 and later; the project itself uses 3.13, which
+    # dismech needs. The fast tests keep the oldest honest (dismech's are skipped).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.2.0
+      - run: uv sync --python 3.10 --all-extras
+      - run: uv run --python 3.10 pytest -m "not slow"
+
   simulate:
     # The slow tests, one solver per job so they run side by side. Every slow test
     # belongs to exactly one: those that name no solver run with PyElastica's.
