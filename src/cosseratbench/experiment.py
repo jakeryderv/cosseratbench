@@ -137,6 +137,9 @@ class Result:
     # How many runs were going at once when this one was timed; above 1 they competed
     # for the machine and the wall time reads high.
     jobs: int = 1
+    # The numerical choices the adapter made (time step, contact stiffness, damping...),
+    # if it says: results depend on them, so they are read beside the results.
+    settings: Mapping[str, object] = field(default_factory=dict)
 
     @property
     def outcome(self) -> str:
@@ -166,6 +169,7 @@ class Result:
             "observations": finite(self.observations),
             "provenance": dict(self.provenance),
             "jobs": self.jobs,
+            "settings": dict(self.settings),
         }
 
     def save(self, directory: Path) -> None:
@@ -312,6 +316,8 @@ def run(
     missing = (experiment.requires | _needs(scenario)) - solver.capabilities
     if missing:
         return Result(**identity, missing=tuple(sorted(c.value for c in missing)))
+    if hasattr(solver, "settings"):
+        identity["settings"] = solver.settings(scenario, n_elements=n_elements, n_frames=n_frames)
 
     # A few steps of the same problem first, so that one-off costs (JIT compilation,
     # library loading) stay out of the timing.

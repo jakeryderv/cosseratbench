@@ -110,11 +110,34 @@ class PyElasticaSolver:
         # Half the estimated stability limit, times any scale asked for.
         self.time_step_safety = 0.5 * time_step_scale
 
-    def run(self, scenario: Scenario, *, n_elements: int, n_frames: int) -> Trajectory:
+    def _steps(self, scenario: Scenario, n_elements: int, n_frames: int) -> tuple[float, int]:
+        """The time step, and how many of them make up one frame."""
         frame_interval = scenario.duration / (n_frames - 1)
         limit = self.time_step_safety * min(_stable_time_step(r, n_elements) for r in scenario.rods)
         steps_per_frame = math.ceil(frame_interval / limit)
-        dt = frame_interval / steps_per_frame
+        return frame_interval / steps_per_frame, steps_per_frame
+
+    def settings(self, scenario: Scenario, *, n_elements: int, n_frames: int) -> dict:
+        """The numerical choices this adapter makes for a scenario, as it makes them."""
+        dt, _ = self._steps(scenario, n_elements, n_frames)
+        springs = [self._spring(self._node_mass(rod, n_elements), dt) for rod in scenario.rods]
+        can_touch = bool(scenario.obstacles) or len(scenario.rods) > 1 or scenario.self_contact
+        return {
+            "integrator": "position Verlet (explicit)",
+            "time_step": dt,
+            "damping_rate": 2.0 * scenario.slowest_frequency() if scenario.quasi_static else 0.0,
+            **(
+                {
+                    "contact_stiffness": [k for k, _ in springs],
+                    "contact_damping": [nu for _, nu in springs],
+                }
+                if can_touch
+                else {}
+            ),
+        }
+
+    def run(self, scenario: Scenario, *, n_elements: int, n_frames: int) -> Trajectory:
+        dt, steps_per_frame = self._steps(scenario, n_elements, n_frames)
 
         simulator = _Simulator()
         rods = [self._add_rod(simulator, scenario, spec, n_elements, dt) for spec in scenario.rods]

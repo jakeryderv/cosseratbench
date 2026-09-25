@@ -142,3 +142,31 @@ def test_runs_in_parallel_match_runs_one_at_a_time(tmp_path):
         parallel = results[2][key]
         assert parallel["metrics"] == serial["metrics"]
         assert (serial["jobs"], parallel["jobs"]) == (1, 2)
+
+
+def test_a_run_records_the_numerical_settings_its_adapter_reports(tmp_path, fakes):
+    class Reporting(Counting):
+        def settings(self, scenario, *, n_elements, n_frames):
+            return {"time_step": scenario.duration / (10 * (n_frames - 1)), "integrator": "fake"}
+
+    from cosseratbench import run
+
+    result = run(fakes["still"], Reporting(), n_elements=4, n_frames=11)
+    assert result.settings == {"time_step": 0.01, "integrator": "fake"}
+    assert run(fakes["still"], Counting(), n_elements=4).settings == {}  # it need not say
+
+
+@pytest.mark.parametrize(
+    "name, module", [("pyelastica", "elastica"), ("mujoco", "mujoco"), ("dismech", "dismech")]
+)
+def test_every_built_in_adapter_reports_its_settings(name, module):
+    pytest.importorskip(module)
+    capstan, pile = registry.load_experiment("capstan"), registry.load_experiment("pile")
+    for scenario in (capstan.scenario, pile.scenario):
+        usual = registry.load_solver(name).settings(scenario, n_elements=50, n_frames=101)
+        coarse = registry.load_solver(name, time_step_scale=2.0).settings(
+            scenario, n_elements=50, n_frames=101
+        )
+        json.dumps(usual)  # saved as it is
+        assert usual["time_step"] > 0 and isinstance(usual["integrator"], str)
+        assert coarse["time_step"] == pytest.approx(2 * usual["time_step"], rel=0.1)

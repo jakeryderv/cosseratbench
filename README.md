@@ -139,7 +139,12 @@ turns with the rod's cross-section. A solver that breaks down should raise
 `cosseratbench.solver.Diverged`, with the simulated time if it knows it; the
 runner also catches blow-ups a solver misses.
 To take part in time step sweeps, accept a `time_step_scale` keyword in the
-constructor and multiply your own choice of step by it.
+constructor and multiply your own choice of step by it. Two optional extras are
+recorded with every run: a `backend_version` attribute (the version of the library
+you drive, so saved runs are not reused across versions) and a
+`settings(scenario, *, n_elements, n_frames)` method returning your numerical
+choices (time step, contact stiffness, damping) as JSON values, which the viewer
+shows beside the results.
 
 An experiment builds its scenario from its parameters:
 

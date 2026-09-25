@@ -217,11 +217,29 @@ class MuJoCoSolver:
         # Half the estimated stability limit, times any scale asked for.
         self.time_step_safety = 0.5 * time_step_scale
 
-    def run(self, scenario: Scenario, *, n_elements: int, n_frames: int) -> Trajectory:
+    def _steps(self, scenario: Scenario, n_elements: int, n_frames: int) -> tuple[float, int]:
+        """The time step, and how many of them make up one frame."""
         frame_interval = scenario.duration / (n_frames - 1)
         limit = self.time_step_safety * min(_stable_time_step(r, n_elements) for r in scenario.rods)
         steps_per_frame = math.ceil(frame_interval / limit)
-        dt = float(frame_interval / steps_per_frame)  # a NumPy float's repr is not MJCF
+        return float(frame_interval / steps_per_frame), steps_per_frame  # MJCF needs a float
+
+    def settings(self, scenario: Scenario, *, n_elements: int, n_frames: int) -> dict:
+        """The numerical choices this adapter makes for a scenario, as it makes them."""
+        dt, _ = self._steps(scenario, n_elements, n_frames)
+        return {
+            "integrator": "implicitfast",
+            "time_step": dt,
+            "damping_rate": 2.0 * scenario.slowest_frequency() if scenario.quasi_static else 0.0,
+            "friction_cone": "elliptic",
+            # Contact and the constraints holding ends are as stiff as the step allows.
+            "contact_time_constant": 2.0 * dt,
+            "constraint_time_constant": 2.0 * dt,
+        }
+
+    def run(self, scenario: Scenario, *, n_elements: int, n_frames: int) -> Trajectory:
+        dt, steps_per_frame = self._steps(scenario, n_elements, n_frames)
+        frame_interval = scenario.duration / (n_frames - 1)
 
         parts = [
             _rod_xml(i, rod, n_elements, dt, scenario.self_contact)
